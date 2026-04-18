@@ -1,5 +1,6 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Box,
   Typography,
@@ -59,9 +60,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages }) => {
                     borderRadius: 1,
                     overflowX: "auto",
                   },
+                  "& table": { borderCollapse: "collapse", width: "100%", mb: 1 },
+                  "& th, & td": { border: "1px solid", borderColor: "divider", px: 1.5, py: 0.75, textAlign: "left" },
+                  "& th": { bgcolor: "grey.200", fontWeight: "bold" },
                 }}
               >
-                <ReactMarkdown>{msg.text}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
               </Typography>
             )}
 
