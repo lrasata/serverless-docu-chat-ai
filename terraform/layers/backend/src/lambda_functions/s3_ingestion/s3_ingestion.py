@@ -100,15 +100,6 @@ def ensure_table():
             CREATE INDEX IF NOT EXISTS document_chunks_document_id_idx
             ON document_chunks (document_id);
         """)
-        # Migration: add fts column to tables created before hybrid search was introduced.
-        # GENERATED ALWAYS AS ... STORED means PostgreSQL auto-computes and backfills the
-        # column from content — no data change needed on our side.
-        # TODO remove this after destroy the infrastructure and recreate the table.
-        cur.execute("""
-            ALTER TABLE document_chunks
-              ADD COLUMN IF NOT EXISTS fts tsvector
-                GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
-        """)
         cur.execute("""
             CREATE INDEX IF NOT EXISTS document_chunks_fts_idx
             ON document_chunks USING GIN (fts);
