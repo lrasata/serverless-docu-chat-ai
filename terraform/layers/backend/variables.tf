@@ -109,9 +109,15 @@ variable "bucket_av_sns_findings_topic_name" {
 #-------------- Bedrock and Chat variables -----------------------------------------------
 # START
 variable "embedding_model" {
-  description = "Bedrock embedding model"
+  description = "Bedrock embedding model ID. Must stay consistent for the lifetime of the vector store — changing it requires dropping and recreating the document_chunks table and re-ingesting all documents."
   type        = string
   default     = "amazon.titan-embed-image-v1"
+}
+
+variable "embedding_dimensions" {
+  description = "Output vector dimensions of the embedding model. Must match the model set in embedding_model: titan-embed-image-v1 = 1024, titan-embed-text-v1 = 1536, titan-embed-text-v2:0 = 1024."
+  type        = number
+  default     = 1024
 }
 
 variable "bedrock_model_inference_profile_arn" {

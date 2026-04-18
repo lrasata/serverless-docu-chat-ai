@@ -264,7 +264,7 @@ aws cloudfront create-invalidation --distribution-id <distribution_id> --paths "
 
 1. Navigate to `https://staging.your-domain.com`
 2. Sign in with Google
-3. Upload a PDF document
+3. Upload a document (supported formats: `.pdf`, `.txt`, `.md`, `.docx`)
 4. Wait a few seconds for ingestion (check CloudWatch logs for the `s3-ingestion` Lambda)
 5. Ask a question about the document in the chat
 

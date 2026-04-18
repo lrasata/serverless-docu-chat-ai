@@ -1,6 +1,7 @@
 import json
 import os
 import io
+import re
 import time
 import random
 import boto3
@@ -20,6 +21,10 @@ cloudwatch = boto3.client("cloudwatch", config=Config(connect_timeout=2, read_ti
 
 FUNCTION_NAME = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "s3-ingestion")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-image-v1")
+EMBEDDING_DIMENSIONS = int(os.environ.get("EMBEDDING_DIMENSIONS", "1024"))
+REGION = os.environ["REGION"]
+RDS_SECRET_ARN = os.environ["RDS_SECRET_ARN"]
+DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
 
 def _emit_bedrock_metric(metric_name, value_ms):
     try:
@@ -34,10 +39,6 @@ def _emit_bedrock_metric(metric_name, value_ms):
         )
     except Exception as e:
         print(f"Failed to emit metric {metric_name}: {e}")
-
-REGION = os.environ["REGION"]
-RDS_SECRET_ARN = os.environ["RDS_SECRET_ARN"]
-DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
 
 # ---------- Connection cache (survives warm invocations) ----------
 _db_conn = None
@@ -75,13 +76,16 @@ def get_db_connection():
 def ensure_table():
     conn = get_db_connection()
     with conn.cursor() as cur:
-        cur.execute("""
+        # EMBEDDING_DIMENSIONS must match the output size of EMBEDDING_MODEL.
+        # Changing this after the table is created requires dropping and recreating the table
+        # and re-ingesting all documents — vector(N) columns cannot be altered in place.
+        cur.execute(f"""
             CREATE TABLE IF NOT EXISTS document_chunks (
                 id          BIGSERIAL PRIMARY KEY,
                 document_id TEXT         NOT NULL,
                 chunk_id    TEXT         NOT NULL UNIQUE,
                 content     TEXT         NOT NULL,
-                embedding   vector(1536) NOT NULL
+                embedding   vector({EMBEDDING_DIMENSIONS}) NOT NULL
             );
         """)
         cur.execute("""
@@ -114,14 +118,14 @@ def extract_docx(file_bytes):
 def extract_text(file_bytes, file_key):
     if file_key.endswith(".pdf"):
         return extract_pdf(file_bytes)
-    elif file_key.endswith(".txt"):
+    elif file_key.endswith((".txt", ".md")):
         return file_bytes.decode("utf-8")
     elif file_key.endswith(".docx"):
         return extract_docx(file_bytes)
     else:
         raise ValueError("Unsupported file type")
 
-def chunk_text(text, chunk_size=500, overlap=50):
+def chunk_fixed_size(text, chunk_size=500, overlap=50):
     words = text.split()
     chunks = []
     start = 0
@@ -132,6 +136,41 @@ def chunk_text(text, chunk_size=500, overlap=50):
             chunks.append(chunk)
         start = end - overlap
     return chunks
+
+def chunk_md_by_header(text, max_section_words=800):
+    # Split on any ATX heading (# through ####). The heading line is kept at the
+    # start of each section so the LLM sees the topic when the chunk is retrieved.
+    sections = re.split(r'(?m)^(#{1,4}\s+.+)$', text)
+
+    # re.split with a capturing group interleaves headings and bodies:
+    # [preamble, heading1, body1, heading2, body2, ...]
+    # Zip them back into (heading, body) pairs; treat any preamble as a headerless section.
+    chunks = []
+    preamble = sections[0].strip()
+    if preamble:
+        chunks.extend(chunk_fixed_size(preamble, chunk_size=200, overlap=40))
+
+    pairs = zip(sections[1::2], sections[2::2])
+    for heading, body in pairs:
+        section = f"{heading.strip()}\n{body.strip()}"
+        if len(section.split()) <= max_section_words:
+            if len(section.strip()) > 200:
+                chunks.append(section)
+        else:
+            # Section too large — split with overlap so heading context isn't lost
+            chunks.extend(chunk_fixed_size(section, chunk_size=200, overlap=40))
+
+    return chunks
+
+def chunk_document(text, file_key):
+    if file_key.endswith(".txt"):
+        # Fixed-size with overlap: ~200 words, 20% overlap (40 words)
+        return chunk_fixed_size(text, chunk_size=200, overlap=40)
+    if file_key.endswith(".md"):
+        # Header-based: each heading section is one chunk; oversized sections fall back to fixed-size
+        return chunk_md_by_header(text)
+    # Default for .pdf, .docx — unchanged until format-specific strategies are added
+    return chunk_fixed_size(text)
 
 _BEDROCK_RETRYABLE = {"ThrottlingException", "ServiceUnavailableException", "ModelTimeoutException"}
 
@@ -225,7 +264,7 @@ def _process(message, bucket, key):
     if not text or len(text.strip()) < 100:
         raise ValueError("Extracted text is empty or too short")
 
-    chunks = chunk_text(text)
+    chunks = chunk_document(text, key)
     print(f"Created {len(chunks)} chunks")
 
     document_id = key

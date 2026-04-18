@@ -16,10 +16,11 @@ locals {
       s3_key       = var.s3_ingestion_lambda_code_key
       # Variables unique to this Lambda
       environment_vars = {
-        RDS_SECRET_ARN  = module.rds.rds_secret_arn
-        DOCUMENTS_TABLE = module.file_uploader.dynamo_db_table_name
-        REGION          = var.region
-        EMBEDDING_MODEL = var.embedding_model
+        RDS_SECRET_ARN       = module.rds.rds_secret_arn
+        DOCUMENTS_TABLE      = module.file_uploader.dynamo_db_table_name
+        REGION               = var.region
+        EMBEDDING_MODEL      = var.embedding_model
+        EMBEDDING_DIMENSIONS = var.embedding_dimensions
       }
       # Policy unique to this Lambda
       iam_policy_statements = [

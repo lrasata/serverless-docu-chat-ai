@@ -40,7 +40,7 @@ A cloud-native application that allows users to chat with their PDF documents us
 
 1. **Ingestion** 
 
-   When a document is uploaded to S3, the `s3-ingestion` Lambda extracts the text, splits it into overlapping chunks (~500 words), and calls Amazon Titan Embeddings to convert each chunk into a 1536-dimensional vector. The vectors are stored alongside the text in RDS PostgreSQL using the `pgvector` extension.
+   When a document is uploaded to S3, the `s3-ingestion` Lambda extracts the text, applies a format-specific chunking strategy (see [Chunking and Search Considerations](#chunking-and-search-considerations)), and calls the configured Bedrock embedding model to convert each chunk into a vector. The vectors are stored alongside the text in RDS PostgreSQL using the `pgvector` extension.
 
 2. **Query**
 
@@ -80,16 +80,16 @@ A cloud-native application that allows users to chat with their PDF documents us
   - `query-document` - RAG chat handler with Bedrock integration
   - `s3-ingestion` - Extract text, create embeddings, index to pgvector
     
-    Splits the document into ~500-word overlapping chunks, converts each chunk into a 1536-dimension vector using Amazon Titan Embeddings, then stores both the raw text and its vector in PostgreSQL (pgvector).
+    Applies a format-specific chunking strategy, converts each chunk into a vector using the configured Bedrock embedding model, then stores both the raw text and its vector in PostgreSQL (pgvector). Supported formats: `.pdf`, `.txt`, `.md`, `.docx`.
 
     Each row in `document_chunks` is:
 
-    | column        | what it stores                                |
-    |---------------|-----------------------------------------------|
-    | `document_id` | the S3 key of the source file                 |
-    | `chunk_id`    | `{document_id}-{chunk_index}`                 |
-    | `content`     | the raw text of the chunk (~500 words)        |
-    | `embedding`   | the 1536 floats vector representing that text |
+    | column        | what it stores                                              |
+    |---------------|-------------------------------------------------------------|
+    | `document_id` | the S3 key of the source file                               |
+    | `chunk_id`    | `{document_id}-{chunk_index}`                               |
+    | `content`     | the raw text of the chunk (size varies by chunking strategy)|
+    | `embedding`   | the vector representing that chunk (dimensions set by model)|
 
     ```sql
     INSERT INTO document_chunks (document_id, chunk_id, content, embedding)
@@ -214,10 +214,19 @@ supports pgvector.
 
 ## Chunking and Search Considerations
 
-- **Chunking strategy:**  
-  Documents are split into ~500-word overlapping chunks for embeddings. The **choice of chunking affects retrieval quality**:
-    - If your documents have unpredictable formatting or structure, **chunking by character length** is often more reliable than word-based heuristics.
-    - Poor chunking can lead to irrelevant or truncated context being sent to the LLM, reducing answer quality.
+- **Chunking strategy:**
+
+  The `s3-ingestion` Lambda applies a different chunking strategy per file format, since the optimal unit of retrieval depends on document structure:
+
+  | Format           | Strategy                  | Chunk size                                                                                  | Why                                                                                               |
+  |------------------|---------------------------|---------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+  | `.txt`           | Fixed-size with overlap   | ~200 words, 20% overlap (40 words)                                                          | No exploitable structure; overlap prevents losing context at boundaries                           |
+  | `.md`            | Header-based hierarchical | One `#`–`####` section per chunk; fallback to fixed-size (200 words) if section > 800 words | Each heading section is an atomic unit (Q&A, step, topic) — splitting mid-section loses coherence |
+  | `.pdf` / `.docx` | Fixed-size with overlap   | ~500 words, 50-word overlap                                                                 | Default fallback until format-specific strategies are added                                       |
+
+  If a Markdown file has no headings, the entire text is treated as preamble and chunked with the fixed-size strategy, so it degrades gracefully.
+
+  The **choice of chunking directly affects retrieval quality**: poor chunking sends irrelevant or truncated context to the LLM, reducing answer accuracy regardless of model quality.
 
 - **Search type:**
     - Currently, only **semantic search** via vector similarity is used.
