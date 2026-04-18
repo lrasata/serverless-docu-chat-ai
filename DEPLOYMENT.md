@@ -178,7 +178,7 @@ rm -rf build && mkdir build
 docker run --rm --user "$(id -u):$(id -g)" --entrypoint "" \
   -v "$PWD:/var/task" public.ecr.aws/sam/build-python3.11 \
   bash -c "pip install -r requirements.txt --only-binary numpy -t build/"
-cp s3_ingestion.py build/
+cp *.py build/
 cd build && zip -r ../lambda_s3_ingestion.zip .
 
 # Query Document Lambda

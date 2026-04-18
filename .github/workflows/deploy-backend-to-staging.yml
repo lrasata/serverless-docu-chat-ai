@@ -223,7 +223,7 @@ jobs:
       - name: Package S3 Ingestion Lambda
         run: |
           cd terraform/layers/backend/src/lambda_functions/s3_ingestion
-          cp s3_ingestion.py build/
+          cp *.py build/
           cd build
           zip -r ../lambda_s3_ingestion.zip .
 

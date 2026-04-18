@@ -215,15 +215,26 @@ supports pgvector.
 
   The `s3-ingestion` Lambda applies a different chunking strategy per file format, since the optimal unit of retrieval depends on document structure:
 
-  | Format           | Strategy                  | Chunk size                                                                                  | Why                                                                                               |
-  |------------------|---------------------------|---------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
-  | `.txt`           | Fixed-size with overlap   | ~200 words, 20% overlap (40 words)                                                          | No exploitable structure; overlap prevents losing context at boundaries                           |
-  | `.md`            | Header-based hierarchical | One `#`–`####` section per chunk; fallback to fixed-size (200 words) if section > 800 words | Each heading section is an atomic unit (Q&A, step, topic) — splitting mid-section loses coherence |
-  | `.pdf` / `.docx` | Fixed-size with overlap   | ~500 words, 50-word overlap                                                                 | Default fallback until format-specific strategies are added                                       |
+  | Format   | Strategy                  | Chunk size                                                                                   | Why                                                                                               |
+  |----------|---------------------------|----------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+  | `.txt`   | Fixed-size with overlap   | ~200 words, 20% overlap (40 words)                                                           | No exploitable structure; overlap prevents losing context at boundaries                           |
+  | `.md`    | Header-based hierarchical | One `#`–`####` section per chunk; fallback to fixed-size (200 words) if section > 800 words  | Each heading section is an atomic unit (Q&A, step, topic) — splitting mid-section loses coherence |
+  | `.pdf`   | Section-aware with fallback | Regex detects numbered/named headings; each section is one chunk; fallback to fixed-size (300 words, 60-word overlap) if section > 600 words or no headings detected | Preserves policy clause / rule integrity; splitting mid-rule gives wrong answers |
+  | `.docx`  | Fixed-size with overlap   | ~500 words, 50-word overlap                                                                  | Default fallback                                                                                  |
 
-  If a Markdown file has no headings, the entire text is treated as preamble and chunked with the fixed-size strategy, so it degrades gracefully.
+  If a Markdown file has no headings, the entire text is treated as preamble and falls back to fixed-size, so it degrades gracefully.
 
   The **choice of chunking directly affects retrieval quality**: poor chunking sends irrelevant or truncated context to the LLM, reducing answer accuracy regardless of model quality.
+
+  #### PDF chunking risks
+
+  pdfplumber extracts text but loses all visual formatting (bold, font size, indentation). The section regex operates on **text patterns only** and will silently fall back to fixed-size chunking for:
+
+  - **Scanned PDFs** — OCR output has no structure markers; headings look like body text
+  - **Multi-column layouts** — pdfplumber reads columns left-to-right across the page, merging unrelated content and breaking section boundaries
+  - **Image or watermark headings** — headings embedded as images are invisible to the text extractor
+
+  In all these cases ingestion succeeds but retrieval quality silently reverts to fixed-size behaviour. The fallback is logged (`PDF: no sections detected, falling back to fixed-size chunking`) in CloudWatch so you can measure how often it fires.
 
 - **Search type:**
     - Currently, only **semantic search** via vector similarity is used.
