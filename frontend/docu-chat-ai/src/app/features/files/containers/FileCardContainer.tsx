@@ -208,12 +208,6 @@ const FileCardContainer = ({
                 <InsertDriveFileIcon
                   sx={{ fontSize: 28, color: isSelected ? "primary.main" : "text.disabled" }}
                 />
-                <Chip
-                  label={(file.filename.split(".").pop() ?? "file").toUpperCase()}
-                  size="small"
-                  color={isSelected ? "primary" : "default"}
-                  sx={{ fontSize: "0.6rem", height: 16, ml: 0.5, fontWeight: 700 }}
-                />
               </Box>
 
               {/* File name */}
