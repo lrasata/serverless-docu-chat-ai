@@ -108,6 +108,12 @@ variable "bucket_av_sns_findings_topic_name" {
 
 #-------------- Bedrock and Chat variables -----------------------------------------------
 # START
+variable "embedding_model" {
+  description = "Bedrock embedding model"
+  type        = string
+  default     = "amazon.titan-embed-image-v1"
+}
+
 variable "bedrock_model_inference_profile_arn" {
   description = "Bedrock model Inference profile arn"
   type        = string

@@ -19,7 +19,7 @@ Before you begin, ensure you have:
 1. Navigate to AWS Bedrock console
 2. Go to "Model access" in the left sidebar
 3. Request access to:
-   - **Amazon Titan Embeddings G1 - Text** (required for embeddings)
+   - **Amazon Titan Multimodal Embeddings G1** (`amazon.titan-embed-image-v1`, default) — or any other Bedrock embedding model you set via `embedding_model`
    - **Anthropic Claude 4.6 Sonnet** (recommended for chat). Refer to [Claude LLMs documentation](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model)
 
 Access is usually granted within minutes.
@@ -86,6 +86,11 @@ db_instance_class    = "db.t4g.micro"
 availability_zones   = ["eu-central-1a", "eu-central-1b"]
 max_search_results   = 5
 
+# Embedding model (optional — default shown)
+# Both s3-ingestion and query-document use the same model.
+# Must stay consistent for the lifetime of the vector store — changing it requires full re-ingestion.
+embedding_model = "amazon.titan-embed-image-v1"
+
 # LLM configuration (optional — defaults shown)
 llm_temperature = 0.7
 llm_max_tokens  = 2000
@@ -93,12 +98,13 @@ llm_max_tokens  = 2000
 
 #### Bedrock model configuration
 
-Two separate settings control which model is used — they serve different purposes:
+Three separate settings control which models are used — they serve different purposes:
 
-| Variable                             | Purpose                  | Description                                                                                                                                                                                                       |
-|--------------------------------------|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `bedrock_model_inference_profile_arn` | **Runtime** — what the Lambda calls | ARN of a Bedrock inference profile. A cross-region inference profile automatically routes requests to available regions for resilience. The Lambda passes this as `modelId` to the Bedrock Converse API. Find it in AWS Bedrock → Inference and assessment → Inference profiles. |
-| `bedrock_foundation_model_arns`      | **IAM** — what AWS permits | List of foundation model ARNs granted `bedrock:InvokeModel` in the Lambda's IAM policy. When a cross-region inference profile routes a request, Bedrock invokes the underlying foundation model in a specific region — IAM must explicitly allow that. The default `arn:aws:bedrock:*::foundation-model/*` permits any model in any region, which is what makes swapping LLMs a one-variable change. Restrict to specific ARNs in production. |
+| Variable                              | Purpose                              | Description                                                                                                                                                                                                       |
+|---------------------------------------|--------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `embedding_model`                     | **Embedding** — document and query vectorization | Bedrock model ID passed as `EMBEDDING_MODEL` to both `s3-ingestion` and `query-document` Lambdas. Default: `amazon.titan-embed-image-v1`. Must stay consistent for the lifetime of the vector store — changing it requires full re-ingestion of all documents. |
+| `bedrock_model_inference_profile_arn` | **Runtime** — what the Lambda calls  | ARN of a Bedrock inference profile. A cross-region inference profile automatically routes requests to available regions for resilience. The Lambda passes this as `modelId` to the Bedrock Converse API. Find it in AWS Bedrock → Inference and assessment → Inference profiles. |
+| `bedrock_foundation_model_arns`       | **IAM** — what AWS permits           | List of foundation model ARNs granted `bedrock:InvokeModel` in the Lambda's IAM policy. When a cross-region inference profile routes a request, Bedrock invokes the underlying foundation model in a specific region — IAM must explicitly allow that. The default `arn:aws:bedrock:*::foundation-model/*` permits any model in any region, which is what makes swapping LLMs a one-variable change. Restrict to specific ARNs in production. |
 
 **Example: switching from Claude to Llama 3**
 
@@ -114,6 +120,18 @@ bedrock_foundation_model_arns = [
 ```
 
 No code changes required — the Lambda uses the Bedrock Converse API which has a unified interface across all supported models.
+
+#### Embedding model options
+
+Common choices for `embedding_model`:
+
+| Model ID                          | Type        | Dimensions | Notes                                                  |
+|-----------------------------------|-------------|------------|--------------------------------------------------------|
+| `amazon.titan-embed-image-v1`     | Multimodal  | 1024       | Default. Supports text and image inputs.               |
+| `amazon.titan-embed-text-v1`      | Text only   | 1536       | Text-only, higher dimensionality.                      |
+| `amazon.titan-embed-text-v2:0`    | Text only   | 1024       | Latest text model, more cost-efficient.                |
+
+> **Important:** The vector dimension must match the `embedding vector(N)` column in the `document_chunks` table. The table is created on first cold start — if you change the model after initial deployment, drop and recreate the table and re-ingest all documents.
 
 #### LLM generation parameters
 

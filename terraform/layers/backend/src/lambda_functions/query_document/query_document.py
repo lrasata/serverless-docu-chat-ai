@@ -16,9 +16,7 @@ BEDROCK_GUARDRAIL_ID = os.environ["BEDROCK_GUARDRAIL_ID"]
 BEDROCK_GUARDRAIL_VERSION = os.environ.get("BEDROCK_GUARDRAIL_VERSION", "1")
 TEMPERATURE=float(os.environ.get("TEMPERATURE", "0.7"))
 MAX_TOKENS=int(os.environ.get("LLM_MAX_TOKENS", "2000"))
-
-# ----------- CONSTANTS -----------------
-QUESTION_MODEL_EMBEDDING="amazon.titan-embed-text-v1"
+EMBEDDING_MODEL=os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-image-v1")
 
 # ---------- AWS clients ----------
 bedrock_runtime = boto3.client("bedrock-runtime", region_name=REGION)
@@ -77,7 +75,7 @@ def create_embedding(text):
     try:
         t0 = time.monotonic()
         response = bedrock_runtime.invoke_model(
-            modelId=QUESTION_MODEL_EMBEDDING,
+            modelId=EMBEDDING_MODEL,
             contentType="application/json",
             accept="application/json",
             body=json.dumps({"inputText": text})

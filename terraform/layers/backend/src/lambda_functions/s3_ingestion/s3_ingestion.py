@@ -19,9 +19,7 @@ dynamodb = boto3.client("dynamodb")
 cloudwatch = boto3.client("cloudwatch", config=Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 0}))
 
 FUNCTION_NAME = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "s3-ingestion")
-
-# ----------- CONSTANTS -----------------
-QUESTION_MODEL_EMBEDDING="amazon.titan-embed-text-v1"
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-image-v1")
 
 def _emit_bedrock_metric(metric_name, value_ms):
     try:
@@ -142,7 +140,7 @@ def create_embedding(text, max_retries=3):
         try:
             t0 = time.monotonic()
             response = bedrock.invoke_model(
-                modelId=QUESTION_MODEL_EMBEDDING,
+                modelId=EMBEDDING_MODEL,
                 contentType="application/json",
                 accept="application/json",
                 body=json.dumps({"inputText": text})
