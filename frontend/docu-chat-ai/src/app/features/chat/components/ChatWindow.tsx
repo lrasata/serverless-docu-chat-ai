@@ -36,13 +36,33 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages }) => {
             }}
           >
             {msg.sender === "user" ? (
-              <Typography variant="body1" color="white" sx={{ whiteSpace: "pre-wrap" }}>
+              <Typography
+                variant="body1"
+                color="white"
+                sx={{ whiteSpace: "pre-wrap" }}
+              >
                 {msg.text}
               </Typography>
             ) : (
-              <Box sx={{ "& p": { mt: 0, mb: 1 }, "& p:last-child": { mb: 0 }, "& ul, & ol": { pl: 2, mb: 1 }, "& li": { mb: 0.5 }, "& code": { fontFamily: "monospace", bgcolor: "grey.200", px: 0.5, borderRadius: 0.5 }, "& pre": { bgcolor: "grey.200", p: 1, borderRadius: 1, overflowX: "auto" } }}>
+              <Typography
+                variant="body1"
+                component="div"
+                sx={{
+                  "& p": { mt: 0, mb: 1 },
+                  "& p:last-child": { mb: 0 },
+                  "& ul, & ol": { pl: 2, mb: 1 },
+                  "& li": { mb: 0.5 },
+                  "& code": { bgcolor: "grey.200", px: 0.5, borderRadius: 0.5 },
+                  "& pre": {
+                    bgcolor: "grey.200",
+                    p: 1,
+                    borderRadius: 1,
+                    overflowX: "auto",
+                  },
+                }}
+              >
                 <ReactMarkdown>{msg.text}</ReactMarkdown>
-              </Box>
+              </Typography>
             )}
 
             {msg.sources && msg.sources.length > 0 && (
@@ -102,7 +122,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages }) => {
                           color="text.disabled"
                           sx={{ mt: 0.5, display: "block" }}
                         >
-                          Document ID: ...{source.documentId.split("/").pop()?.replace(/^[^_]+_/, "")}
+                          Document ID: ...
+                          {source.documentId
+                            .split("/")
+                            .pop()
+                            ?.replace(/^[^_]+_/, "")}
                         </Typography>
                       </Box>
                     ))}
