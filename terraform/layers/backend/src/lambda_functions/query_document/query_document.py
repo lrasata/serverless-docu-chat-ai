@@ -17,7 +17,7 @@ BEDROCK_GUARDRAIL_VERSION = os.environ.get("BEDROCK_GUARDRAIL_VERSION", "1")
 TEMPERATURE=float(os.environ.get("TEMPERATURE", "0.7"))
 MAX_TOKENS=int(os.environ.get("LLM_MAX_TOKENS", "2000"))
 EMBEDDING_MODEL=os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-image-v1")
-MIN_RELEVANCE_SCORE=float(os.environ.get("MIN_RELEVANCE_SCORE", "0.6"))
+MIN_RELEVANCE_SCORE=float(os.environ.get("MIN_RELEVANCE_SCORE", "0.4"))
 
 # ---------- AWS clients ----------
 bedrock_runtime = boto3.client("bedrock-runtime", region_name=REGION)

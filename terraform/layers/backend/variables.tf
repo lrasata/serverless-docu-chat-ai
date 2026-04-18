@@ -115,9 +115,9 @@ variable "embedding_model" {
 }
 
 variable "min_relevance_score" {
-  description = "Minimum cosine similarity score (0–1) for a chunk to be considered relevant. Chunks below this threshold are discarded before being sent to the LLM. Lower values return more results but risk sending irrelevant context."
+  description = "Minimum cosine similarity score (0–1) for a chunk to be considered relevant. Chunks below this threshold are discarded before being sent to the LLM. Lower values return more results but risk sending irrelevant context. Tune per embedding model — multimodal models (titan-embed-image-v1) score lower on text than text-only models."
   type        = number
-  default     = 0.6
+  default     = 0.4
 }
 
 variable "embedding_dimensions" {

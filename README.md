@@ -3,7 +3,7 @@
 ![Staging Backend - Deployment pipeline](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-backend-to-staging.yml/badge.svg)
 ![Staging Frontend - Deployment pipeline](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-frontend-to-staging.yml/badge.svg)
 
-A cloud-native application that allows users to chat with their PDF documents using AI. Built with AWS Bedrock, RDS PostgreSQL + pgvector, and React. Uses **Retrieval-Augmented Generation (RAG)** to answer questions grounded in the user's own documents.
+A cloud-native application that allows users to chat with their documents using AI. Built with AWS Bedrock, RDS PostgreSQL + pgvector, and React. Uses **Retrieval-Augmented Generation (RAG)** to answer questions grounded in the user's own documents.
 
 ## Table of Contents
 
@@ -116,7 +116,7 @@ A cloud-native application that allows users to chat with their PDF documents us
     | `bedrock_foundation_model_arns`       | IAM        | Foundation model ARNs granted `bedrock:InvokeModel`. Needed because cross-region inference profiles route internally to underlying models in specific regions — IAM must permit those calls. Defaults to `arn:aws:bedrock:*::foundation-model/*` (any model, any region).        |
     | `llm_temperature`                     | Generation | Response randomness (`0.0` = deterministic, `1.0` = creative). Default: `0.7`.                                                                                                                                                                                                   |
     | `llm_max_tokens`                      | Generation | Maximum tokens in the response — caps answer length and Bedrock cost. Default: `2000`.                                                                                                                                                                                           |
-    | `min_relevance_score`                 | Retrieval  | Minimum cosine similarity score (0–1) a chunk must reach to be included as context. Chunks below this threshold are discarded before the LLM call. Default: `0.6`.                                                                                                               |
+    | `min_relevance_score`                 | Retrieval  | Minimum cosine similarity score (0–1) a chunk must reach to be included as context. Chunks below this threshold are discarded before the LLM call. Default: `0.4`. Tune per embedding model — multimodal models (`titan-embed-image-v1`) produce lower text similarity scores than text-only models. |
 
   **Key design decision — the LLM always responds, even when no chunks pass the threshold.**
 
