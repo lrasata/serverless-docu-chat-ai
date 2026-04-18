@@ -12,6 +12,7 @@ A cloud-native application that allows users to chat with their documents using 
 - [Architecture](#architecture)
 - [How It Works](#how-it-works)
 - [Agentic RAG — Tool Use](#agentic-rag--tool-use)
+  - [Conversation Memory](#conversation-memory)
 - [Repository Structure](#repository-structure)
 - [API Endpoints](#api-endpoints)
 - [Security](#security)
@@ -57,6 +58,7 @@ A cloud-native application that allows users to chat with their documents using 
 - **AI-Powered Chat**: Ask questions about your documents using natural language
 - **Semantic Search**: Vector similarity search with Amazon Titan embeddings and pgvector
 - **Agentic Tool Use**: LLM can call tools mid-conversation to fetch live data (current date, entitlements, payroll) and combine it with document context in a single answer
+- **Conversation Memory**: The last 10 messages (5 turns) are sent with every request so the agent can refer back to earlier questions and answers within the same session
 - **LLM Integration**: Use any LLM available on AWS Bedrock. This project was tested with Anthropic Claude 4.6 Sonnet
 - **Secure Authentication**: AWS Cognito with Google OAuth
 - **Real-time Interface**: Modern React UI with Material-UI
@@ -146,11 +148,11 @@ A cloud-native application that allows users to chat with their documents using 
 2. **S3 event triggers ingestion Lambda** → Extracts text, applies format-specific chunking
 3. **Text chunks embedded** → Using the configured Bedrock embedding model
 4. **Chunks indexed** → Stored in RDS PostgreSQL (`document_chunks` table) with pgvector
-5. **User asks a question** → Question embedded with the same model
+5. **User asks a question** → Question embedded with the same model; last 10 messages sent as conversation history
 6. **Vector search** → pgvector cosine similarity finds the most relevant chunks above `min_relevance_score`
-7. **Agentic loop starts** → Claude receives document context + tool definitions via Bedrock Converse API
+7. **Agentic loop starts** → Claude receives prior conversation turns, document context, and tool definitions via Bedrock Converse API
 8. **Tool calls (if needed)** → Claude calls tools to fetch live data; results fed back into conversation
-9. **Final answer generated** → Claude combines document context + tool results into a coherent response
+9. **Final answer generated** → Claude combines conversation history, document context, and tool results into a coherent response
 10. **User receives answer** → With source citations and relevance scores
 
 ## Agentic RAG — Tool Use
@@ -226,6 +228,41 @@ Iteration 2 — converse(+ tool results)
 ```
 
 Three tool calls resolved in two loop iterations. The LLM performed the date arithmetic itself; the application only executed the tools and passed results back.
+
+### Conversation memory
+
+The agent maintains memory across turns within a session using **client-side history**. The frontend holds all messages in React state. Before each request it builds a history window from the last 10 messages (5 user/assistant turns), filters out error messages, and sends it alongside the new question:
+
+```
+POST /api/chat
+{
+  "question": "How many days do I have left?",
+  "history": [
+    { "role": "user",      "content": "What is my salary band?" },
+    { "role": "assistant", "content": "Your salary band is L4." }
+  ]
+}
+```
+
+The Lambda prepends these turns to the Bedrock Converse `messages` array before sending the current question, so the model can refer back to earlier exchanges:
+
+```
+messages = [
+  { role: "user",      content: prior question 1 },
+  { role: "assistant", content: prior answer 1   },
+  ...
+  { role: "user",      content: context + current question }
+]
+```
+
+**Why client-side history instead of server-side session storage?**
+
+- No DynamoDB table or session ID management required
+- No cold-start lookup — history arrives with the request
+- Window size (`HISTORY_WINDOW = 10`) keeps token usage bounded; older turns are automatically dropped
+- Stateless Lambda: each invocation is fully self-contained
+
+The trade-off is that history resets if the page is refreshed, which is acceptable for a document chat use case where conversations are naturally short-lived.
 
 ### Guard against infinite loops
 

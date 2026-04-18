@@ -130,11 +130,14 @@ def search_similar_chunks(question_embedding, user_id, document_id=None, max_res
 
 MAX_TOOL_ITERATIONS = 5
 
-def run_agentic_loop(question, context_chunks, model_id=BEDROCK_MODEL_INFERENCE_PROFILE_ARN):
+def run_agentic_loop(question, context_chunks, history=None, model_id=BEDROCK_MODEL_INFERENCE_PROFILE_ARN):
     context = "\n\n".join([f"[Chunk {i+1}]\n{chunk['text']}" for i, chunk in enumerate(context_chunks)])
-    messages = [
-        {"role": "user", "content": [{"text": f"Context:\n{context}\n\nQuestion: {question}"}]}
-    ]
+
+    # Prepend conversation history so the model can refer back to previous turns
+    messages = []
+    for turn in (history or []):
+        messages.append({"role": turn["role"], "content": [{"text": turn["content"]}]})
+    messages.append({"role": "user", "content": [{"text": f"Context:\n{context}\n\nQuestion: {question}"}]})
     converse_kwargs = {
         "modelId": model_id,
         "system": [{"text": (
@@ -201,6 +204,7 @@ def handler(event, context):
 
         question = body.get("question", "").strip()
         document_id = body.get("documentId")
+        history = body.get("history", [])
 
         if not question:
             return {
@@ -225,7 +229,7 @@ def handler(event, context):
         if not relevant_chunks:
             print("No chunks above relevance threshold — calling LLM without document context")
 
-        answer = run_agentic_loop(question, relevant_chunks)
+        answer = run_agentic_loop(question, relevant_chunks, history=history)
 
         sources = []
         for chunk in relevant_chunks[:3]:

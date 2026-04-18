@@ -26,8 +26,18 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const HISTORY_WINDOW = 10;
+
   const handleSend = async (text: string) => {
     setError(null);
+
+    const history = messages
+      .filter((m) => !m.error)
+      .slice(-HISTORY_WINDOW)
+      .map((m) => ({
+        role: (m.sender === "user" ? "user" : "assistant") as "user" | "assistant",
+        content: m.text,
+      }));
 
     setMessages((prev) => [
       ...prev,
@@ -42,8 +52,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
     try {
       const token = auth.user?.access_token ?? "";
       const response = selectedDocumentId
-        ? await chatApi.queryDocument(selectedDocumentId, text, token)
-        : await chatApi.queryAllDocuments(text, token);
+        ? await chatApi.queryDocument(selectedDocumentId, text, token, history)
+        : await chatApi.queryAllDocuments(text, token, history);
 
       setMessages((prev) => [
         ...prev,
