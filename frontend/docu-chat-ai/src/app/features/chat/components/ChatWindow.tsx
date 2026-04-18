@@ -99,7 +99,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages }) => {
                           color="text.disabled"
                           sx={{ mt: 0.5, display: "block" }}
                         >
-                          Document ID: {source.documentId.substring(0, 8)}...
+                          Document ID: {source.documentId}...
                         </Typography>
                       </Box>
                     ))}
