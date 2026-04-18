@@ -17,7 +17,14 @@ const initialFileState: IFileState = {
 
 export const fetchFiles = createAsyncThunk(
   "files/fetchFiles",
-  async ({ accessToken, user_sub, resource }: { accessToken: string; user_sub: string; resource: string }, { rejectWithValue }) => {
+  async (
+    {
+      accessToken,
+      user_sub,
+      resource,
+    }: { accessToken: string; user_sub: string; resource: string },
+    { rejectWithValue },
+  ) => {
     const url = new URL(`${API_BACKEND_URL}/files`);
     url.searchParams.append("id", user_sub);
     url.searchParams.append("resource", resource);

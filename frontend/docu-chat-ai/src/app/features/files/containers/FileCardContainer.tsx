@@ -1,4 +1,11 @@
-import { Box, Typography, Checkbox, Chip, Tooltip, CircularProgress } from "@mui/material";
+import {
+  Box,
+  Typography,
+  Checkbox,
+  Chip,
+  Tooltip,
+  CircularProgress,
+} from "@mui/material";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
@@ -39,7 +46,9 @@ const FileCardContainer = ({
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // files in processed status have to be indexed to be ready for querying
-  const idsToIndex = files.filter((f) => f.status === "processed").map((f) => f.file_key);
+  const idsToIndex = files
+    .filter((f) => f.status === "processed")
+    .map((f) => f.file_key);
 
   const toggle = (id: string, isPending: boolean) => {
     if (isPending) return;
@@ -155,10 +164,12 @@ const FileCardContainer = ({
                 cursor: isPending ? "default" : "pointer",
                 opacity: isPending ? 0.6 : 1,
                 transition: "all 0.15s ease",
-                "&:hover": !isPending ? {
-                  borderColor: "primary.main",
-                  bgcolor: isSelected ? "primary.50" : "action.hover",
-                } : {},
+                "&:hover": !isPending
+                  ? {
+                      borderColor: "primary.main",
+                      bgcolor: isSelected ? "primary.50" : "action.hover",
+                    }
+                  : {},
                 ...(isSelected && {
                   bgcolor: (theme) =>
                     theme.palette.mode === "dark"

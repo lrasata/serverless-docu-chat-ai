@@ -11,7 +11,10 @@ interface ChatPageProps {
   isSelectedDocumentPending?: boolean;
 }
 
-const ChatPage: React.FC<ChatPageProps> = ({ selectedDocumentId, isSelectedDocumentPending }) => {
+const ChatPage: React.FC<ChatPageProps> = ({
+  selectedDocumentId,
+  isSelectedDocumentPending,
+}) => {
   const auth = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -82,7 +85,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedDocumentId, isSelectedDocum
 
       {isSelectedDocumentPending && (
         <Alert severity="warning" sx={{ mb: 1 }}>
-          A document is still being indexed. Please wait before asking questions about it.
+          A document is still being indexed. Please wait before asking questions
+          about it.
         </Alert>
       )}
 
@@ -95,7 +99,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ selectedDocumentId, isSelectedDocum
         </Box>
       )}
 
-      <MessageInput onSend={handleSend} disabled={isLoading || !!isSelectedDocumentPending} />
+      <MessageInput
+        onSend={handleSend}
+        disabled={isLoading || !!isSelectedDocumentPending}
+      />
     </Box>
   );
 };

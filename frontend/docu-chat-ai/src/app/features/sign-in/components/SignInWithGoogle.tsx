@@ -5,7 +5,7 @@ import React from "react";
 import Typography from "@mui/material/Typography";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import QuestionAnswerIcon from "@mui/icons-material/QuestionAnswer";
 
 interface SignInWithGoogleProps {
   googleImgSrc: string;
@@ -26,9 +26,9 @@ const SignInWithGoogle: React.FC<SignInWithGoogleProps> = ({
     alignItems="center"
     height="100vh"
   >
-    <PictureAsPdfIcon sx={{ fontSize: 60, my: 2 }} color="primary" />
+    <QuestionAnswerIcon sx={{ fontSize: 60, my: 2 }} color="primary" />
     <Typography variant="h2" mb={3}>
-      PDF Chat AI
+      AI Powered Chatbot
     </Typography>
     <Card
       sx={{
@@ -43,7 +43,7 @@ const SignInWithGoogle: React.FC<SignInWithGoogleProps> = ({
     >
       <CardContent>
         <Typography variant="body1" mb={2}>
-          Chat with your PDFs using AI.
+          Chat with your documents and more using AI.
         </Typography>
         <Button
           onClick={() => auth.signinRedirect()}

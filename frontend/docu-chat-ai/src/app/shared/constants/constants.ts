@@ -1,4 +1,4 @@
-export const APP_NAME = "AI Powered PDF Chat";
+export const APP_NAME = "AI Powered Chatbot";
 export const API_BACKEND_URL = import.meta.env.VITE_API_GW_BACKEND_ENDPOINT;
 
 export const AWS_COGNITO_USER_POOL_API_ENDPOINT = import.meta.env

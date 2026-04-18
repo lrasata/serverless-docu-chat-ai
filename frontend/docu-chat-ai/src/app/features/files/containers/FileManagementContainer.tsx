@@ -38,11 +38,17 @@ interface FileManagementContainerProps {
   onSelectionChange?: (selectedIds: string[], pendingIds: string[]) => void;
 }
 
-const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerProps) => {
+const FileManagementContainer = ({
+  onSelectionChange,
+}: FileManagementContainerProps) => {
   const [dragging, setDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
-  const [awaitingFileKeys, setAwaitingFileKeys] = useState<Set<string>>(new Set());
-  const [timedOutFileKeys, setTimedOutFileKeys] = useState<Set<string>>(new Set());
+  const [awaitingFileKeys, setAwaitingFileKeys] = useState<Set<string>>(
+    new Set(),
+  );
+  const [timedOutFileKeys, setTimedOutFileKeys] = useState<Set<string>>(
+    new Set(),
+  );
   const pollStartedAtRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dispatch = useDispatch<AppDispatch>();
@@ -50,7 +56,13 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
   const auth = useAuth();
 
   const loadFiles = useCallback(() => {
-    dispatch(fetchFiles({ accessToken: auth.user?.access_token ?? "", user_sub: auth.user?.profile.sub ?? "", resource: "users" }));
+    dispatch(
+      fetchFiles({
+        accessToken: auth.user?.access_token ?? "",
+        user_sub: auth.user?.profile.sub ?? "",
+        resource: "users",
+      }),
+    );
   }, [auth.user?.access_token, auth.user?.profile.sub]);
 
   useEffect(() => {
@@ -91,8 +103,9 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
 
     const interval = setInterval(() => {
       if (Date.now() - pollStartedAtRef.current! >= 15 * 60 * 1000) {
-        setTimedOutFileKeys((prev) =>
-          new Set([...prev, ...processingFiles.map((f) => f.file_key)]),
+        setTimedOutFileKeys(
+          (prev) =>
+            new Set([...prev, ...processingFiles.map((f) => f.file_key)]),
         );
         pollStartedAtRef.current = null;
         return;
@@ -110,7 +123,11 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
     if (!user_sub) return;
 
     try {
-      const presignedUrlData = await getPresignedUrl(user_sub, file, auth.user?.access_token ?? "");
+      const presignedUrlData = await getPresignedUrl(
+        user_sub,
+        file,
+        auth.user?.access_token ?? "",
+      );
 
       if (!presignedUrlData?.upload_url || !presignedUrlData?.file_key) return;
 
@@ -245,7 +262,9 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
           variant="body2"
           color={dragging ? "primary" : "text.secondary"}
         >
-          {dragging ? "Release to upload" : "Drag files here or click to browse"}
+          {dragging
+            ? "Release to upload"
+            : "Drag files here or click to browse"}
         </Typography>
         <Chip
           label=".pdf .txt .md .docx"
@@ -286,9 +305,13 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
             >
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 {f.file.name.endsWith(".pdf") ? (
-                  <PictureAsPdfIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                  <PictureAsPdfIcon
+                    sx={{ fontSize: 18, color: "text.secondary" }}
+                  />
                 ) : (
-                  <DescriptionIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                  <DescriptionIcon
+                    sx={{ fontSize: 18, color: "text.secondary" }}
+                  />
                 )}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography variant="body2" noWrap>
@@ -345,7 +368,9 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
           </Typography>
           <FileCardContainer
             files={files.map((f) =>
-              timedOutFileKeys.has(f.file_key) ? { ...f, status: "failed" as const } : f
+              timedOutFileKeys.has(f.file_key)
+                ? { ...f, status: "failed" as const }
+                : f,
             )}
             onSelectionChange={onSelectionChange}
           />
