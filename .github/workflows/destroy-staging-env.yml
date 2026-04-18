@@ -42,6 +42,7 @@ jobs:
       TF_VAR_s3_ingestion_lambda_code_key: "${{ github.event.inputs.environment }}/s3-ingestion.zip"
       TF_VAR_s3_query_document_lambda_code_bucket: docu-chat-ai-lambda-s3-query-document
       TF_VAR_s3_query_document_lambda_code_key: "${{ github.event.inputs.environment }}/s3-query-document.zip"
+      TF_VAR_embedding_model_arn: ${{secrets.EMBEDDING_MODEL_ARN}}
       TF_VAR_bedrock_model_inference_profile_arn: ${{secrets.BEDROCK_MODEL_INFERENCE_PROFILE_ARN}}
       TF_VAR_eval_model_arn: ${{secrets.EVAL_MODEL_ARN}}
       TF_VAR_max_search_results: 5
