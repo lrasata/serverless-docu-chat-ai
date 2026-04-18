@@ -32,26 +32,26 @@ resource "aws_bedrock_guardrail" "main" {
     }
   }
 
-  sensitive_information_policy_config {
-    pii_entities_config {
-      type          = "NAME"
-      action        = "ANONYMIZE"
-      input_action  = "ANONYMIZE"
-      output_action = "ANONYMIZE"
-    }
-    pii_entities_config {
-      type          = "EMAIL"
-      action        = "ANONYMIZE"
-      input_action  = "ANONYMIZE"
-      output_action = "ANONYMIZE"
-    }
-    pii_entities_config {
-      type          = "PHONE"
-      action        = "ANONYMIZE"
-      input_action  = "ANONYMIZE"
-      output_action = "ANONYMIZE"
-    }
-  }
+  # sensitive_information_policy_config {
+  #   pii_entities_config {
+  #     type          = "NAME"
+  #     action        = "ANONYMIZE"
+  #     input_action  = "ANONYMIZE"
+  #     output_action = "ANONYMIZE"
+  #   }
+  #   pii_entities_config {
+  #     type          = "EMAIL"
+  #     action        = "ANONYMIZE"
+  #     input_action  = "ANONYMIZE"
+  #     output_action = "ANONYMIZE"
+  #   }
+  #   pii_entities_config {
+  #     type          = "PHONE"
+  #     action        = "ANONYMIZE"
+  #     input_action  = "ANONYMIZE"
+  #     output_action = "ANONYMIZE"
+  #   }
+  # }
 
   word_policy_config {
     managed_word_lists_config {

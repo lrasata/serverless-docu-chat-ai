@@ -126,9 +126,6 @@ A cloud-native application that allows users to chat with their PDF documents us
     | Insults                  | Blocked at MEDIUM threshold (input + output)        |
     | Prompt attack            | Blocked at HIGH threshold (input only)              |
     | Profanity                | AWS managed word list — blocked                     |
-    | PII (name, email, phone) | Anonymised on input + output via `ANONYMIZE` action |
-
-    Example for PII: User types → Frontend displays it as-is → API Gateway → Lambda → Bedrock (guardrail anonymizes here) → Claude sees `[NAME]`, `[EMAIL]` → Response has no PII
 
 **Authentication:**
 - AWS Cognito User Pool with Google IdP
@@ -315,7 +312,7 @@ Two evaluation rounds completed. Full results, methodology, and observations: [r
 - ✅ Rotate RDS credentials automatically via Secrets Manager rotation
 
 **Content Filtering**
-- ✅ with Bedrock Guardrails for PII removal, text filtering, word filtering, profanities etc...
+- ✅ with Bedrock Guardrails for text filtering, word filtering, profanities etc...
 
 **Observability**
 - ✅ Set up CloudWatch Alarms for Lambda error rates, RDS connection count, and API Gateway 5xx
