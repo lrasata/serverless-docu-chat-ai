@@ -11,6 +11,7 @@ A cloud-native application that allows users to chat with their documents using 
 - [Features](#features)
 - [Architecture](#architecture)
 - [How It Works](#how-it-works)
+- [Agentic RAG — Tool Use](#agentic-rag--tool-use)
 - [Repository Structure](#repository-structure)
 - [API Endpoints](#api-endpoints)
 - [Security](#security)
@@ -46,15 +47,16 @@ A cloud-native application that allows users to chat with their documents using 
 
    When a user asks a question, the `query-document` Lambda embeds the question with the same Titan model, then runs a cosine similarity search (`<=>` operator) against the `document_chunks` table in PostgreSQL to find the most relevant chunks. Results can be scoped to a specific document or to all documents belonging to the user.
 
-3. **Generation**
+3. **Generation (Agentic)**
 
-   The top matching chunks are assembled into a context prompt and sent to Anthropic Claude 4 on AWS Bedrock. Claude answers the question using only the retrieved context, then the response is returned to the frontend with source citations.
+   The retrieved chunks are assembled into a context prompt and sent to Claude via the Bedrock Converse API, along with a set of tool definitions. Claude either answers directly or calls one or more tools to fetch live data (current date, entitlements, payroll). Tool results are fed back into the conversation and Claude generates a final answer. See [Agentic RAG — Tool Use](#agentic-rag--tool-use) for the full loop detail.
 
 ## Features
 
-- **Document Upload**: Tested with PDFs, text files, Markdown. Supports multimodal embedding models (e.g. Amazon Titan Multimodal Embeddings)
+- **Document Upload**: Tested with PDFs, text files, Markdown, DOCX. Supports multimodal embedding models (e.g. Amazon Titan Multimodal Embeddings)
 - **AI-Powered Chat**: Ask questions about your documents using natural language
-- **Semantic Search**: Vector similarity search with Amazon Titan embeddings (for text) and pgvector
+- **Semantic Search**: Vector similarity search with Amazon Titan embeddings and pgvector
+- **Agentic Tool Use**: LLM can call tools mid-conversation to fetch live data (current date, entitlements, payroll) and combine it with document context in a single answer
 - **LLM Integration**: Use any LLM available on AWS Bedrock. This project was tested with Anthropic Claude 4.6 Sonnet
 - **Secure Authentication**: AWS Cognito with Google OAuth
 - **Real-time Interface**: Modern React UI with Material-UI
@@ -77,7 +79,7 @@ A cloud-native application that allows users to chat with their documents using 
 - **Lambda Functions**:
   - `upload` - Generate presigned S3 URLs
   - `get-files` - Query DynamoDB for user documents
-  - `query-document` - RAG chat handler with Bedrock integration
+  - `query-document` - Agentic RAG chat handler: vector search + tool use + Bedrock Converse API
   - `s3-ingestion` - Extract text, create embeddings, index to pgvector
     
     Applies a format-specific chunking strategy, converts each chunk into a vector using the configured Bedrock embedding model, then stores both the raw text and its vector in PostgreSQL (pgvector). Supported formats: `.pdf`, `.txt`, `.md`, `.docx`.
@@ -141,13 +143,93 @@ A cloud-native application that allows users to chat with their documents using 
 ## How It Works
 
 1. **User uploads a document** → Stored in S3
-2. **S3 event triggers ingestion Lambda** → Extracts text, chunks it
-3. **Text chunks embedded** → Using Amazon Titan Embeddings
+2. **S3 event triggers ingestion Lambda** → Extracts text, applies format-specific chunking
+3. **Text chunks embedded** → Using the configured Bedrock embedding model
 4. **Chunks indexed** → Stored in RDS PostgreSQL (`document_chunks` table) with pgvector
-5. **User asks a question** → Question embedded with Titan
-6. **Vector search** → pgvector cosine similarity finds the most relevant chunks
-7. **LLM generates answer** → Claude 4 uses retrieved context to respond
-8. **User receives answer** → With source citations and relevance scores
+5. **User asks a question** → Question embedded with the same model
+6. **Vector search** → pgvector cosine similarity finds the most relevant chunks above `min_relevance_score`
+7. **Agentic loop starts** → Claude receives document context + tool definitions via Bedrock Converse API
+8. **Tool calls (if needed)** → Claude calls tools to fetch live data; results fed back into conversation
+9. **Final answer generated** → Claude combines document context + tool results into a coherent response
+10. **User receives answer** → With source citations and relevance scores
+
+## Agentic RAG — Tool Use
+
+Beyond retrieving document chunks, the `query-document` Lambda runs an **agentic loop** powered by the Bedrock Converse API's native tool use. The LLM can call tools mid-conversation to fetch live data that cannot be in any document, then combine that data with the retrieved context to produce a single coherent answer.
+
+### How the loop works
+
+```
+User question
+      │
+      ▼
+Embed question → vector search → filter by min_relevance_score
+      │
+      ▼
+converse(system prompt, document context, tool definitions)
+      │
+      ├── stopReason = "end_turn"
+      │         └─→ extract text → return answer ✓
+      │
+      └── stopReason = "tool_use"
+                │
+                ▼
+          execute requested tool(s) locally
+                │
+                ▼
+          append tool results to conversation
+                │
+                └─→ converse(updated messages) — repeat up to MAX_TOOL_ITERATIONS (5)
+```
+
+Each call to `converse` sends the full conversation history including all previous tool calls and results. The LLM sees everything it has done so far and decides whether to call another tool or produce the final answer.
+
+### What makes the LLM call a tool
+
+Every `converse` call includes a `toolConfig` containing the list of tool definitions. Each tool has three fields the LLM reads to decide when and how to use it:
+
+| Field | Purpose |
+|---|---|
+| `name` | Identifier used in the `toolUse` response block |
+| `description` | The primary signal — the LLM reads this to decide *whether* the tool is relevant to the current question |
+| `inputSchema` | JSON schema defining required arguments — the LLM must conform to this when calling the tool |
+
+`toolChoice: auto` is set, meaning the LLM decides freely whether to call a tool or answer directly. No routing logic exists on the application side — the LLM owns that decision entirely.
+
+### Available tools
+
+| Tool | Arguments | Returns | When the LLM calls it |
+|---|---|---|---|
+| `get_current_date` | none | `{ "today": "YYYY-MM-DD" }` | Any question involving durations, deadlines, days remaining, or time-relative calculations |
+| `get_my_entitlements` | none | vacation days total/used/remaining, training budget remaining | Questions about leave balance, time off, or benefit entitlements |
+| `get_my_payroll_info` | none | salary band, current salary, next review date | Questions about compensation, salary band, or upcoming review |
+
+> **Note:** The tool implementations are currently mocked and return fixed data. They are designed to demonstrate the agentic pattern — swapping in real data sources only requires changing the implementation inside each function. The tool definitions, the loop, and the dispatcher remain unchanged.
+
+### Example: multi-tool chaining
+
+**Question:** *"How many days until my next salary review, and do I have enough vacation left to take two weeks off before then?"*
+
+```
+Iteration 1 — converse()
+  LLM decides it needs two tools to answer fully
+  → stopReason: "tool_use"
+  → calls get_current_date()       returns { "today": "2025-04-18" }
+  → calls get_my_payroll_info()    returns { "next_review_date": "2025-09-01", ... }
+  → calls get_my_entitlements()    returns { "vacation_days_remaining": 14, ... }
+
+Iteration 2 — converse(+ tool results)
+  LLM now has all data needed
+  → stopReason: "end_turn"
+  → "Your next review is on 2025-09-01, which is 136 days away.
+     You have 14 vacation days remaining — enough for two weeks off before then."
+```
+
+Three tool calls resolved in two loop iterations. The LLM performed the date arithmetic itself; the application only executed the tools and passed results back.
+
+### Guard against infinite loops
+
+`MAX_TOOL_ITERATIONS = 5` limits the number of loop cycles. If the loop exhausts all iterations without reaching `end_turn`, a `RuntimeError` is raised and the Lambda returns a 500. In practice this should not happen with the current tools — it exists as a safety net against a misbehaving model or a future tool that triggers further tool calls.
 
 ## Repository Structure
 

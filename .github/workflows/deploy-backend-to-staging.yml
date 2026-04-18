@@ -231,7 +231,7 @@ jobs:
       - name: Package Query Document Lambda
         run: |
           cd terraform/layers/backend/src/lambda_functions/query_document
-          cp query_document.py build/
+          cp *.py build/
           cd build
           zip -r ../lambda_query_document.zip .
 

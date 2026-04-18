@@ -187,7 +187,7 @@ rm -rf build && mkdir build
 docker run --rm --user "$(id -u):$(id -g)" --entrypoint "" \
   -v "$PWD:/var/task" public.ecr.aws/sam/build-python3.11 \
   bash -c "pip install -r requirements.txt --only-binary numpy -t build/"
-cp query_document.py build/
+cp *.py build/
 cd build && zip -r ../lambda_query_document.zip .
 ```
 

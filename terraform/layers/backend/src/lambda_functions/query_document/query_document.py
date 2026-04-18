@@ -5,6 +5,7 @@ import boto3
 from botocore.config import Config
 import psycopg2
 from pgvector.psycopg2 import register_vector
+from tools import TOOL_CONFIG, execute_tool
 
 # ---------- Environment variables ----------
 REGION = os.environ["REGION"]
@@ -127,34 +128,67 @@ def search_similar_chunks(question_embedding, user_id, document_id=None, max_res
         print(f"Error searching pgvector: {str(e)}")
         raise
 
-def generate_answer_with_bedrock(question, context_chunks, model_id=BEDROCK_MODEL_INFERENCE_PROFILE_ARN):
-    try:
-        context = "\n\n".join([f"[Chunk {i+1}]\n{chunk['text']}" for i, chunk in enumerate(context_chunks)])
-        converse_kwargs = {
-            "modelId": model_id,
-            "system": [{"text": (
-                "You are a helpful AI assistant that answers questions based on the provided document context. "
-                "Only use information from the context below to answer the question. "
-                "If the answer cannot be found in the context, say so."
-            )}],
-            "messages": [{"role": "user", "content": [{"text": f"Context:\n{context}\n\nQuestion: {question}"}]}],
-            "inferenceConfig": {
-                "maxTokens": MAX_TOKENS,
-                "temperature": TEMPERATURE,
-            },
-        }
-        if BEDROCK_GUARDRAIL_ID:
-            converse_kwargs["guardrailConfig"] = {
-                "guardrailIdentifier": BEDROCK_GUARDRAIL_ID,
-                "guardrailVersion": BEDROCK_GUARDRAIL_VERSION,
-            }
+MAX_TOOL_ITERATIONS = 5
 
-        t0 = time.monotonic()
-        response = bedrock_runtime.converse(**converse_kwargs)
-        _emit_bedrock_metric("LLMLatency", (time.monotonic() - t0) * 1000)
-        return response["output"]["message"]["content"][0]["text"]
+def run_agentic_loop(question, context_chunks, model_id=BEDROCK_MODEL_INFERENCE_PROFILE_ARN):
+    context = "\n\n".join([f"[Chunk {i+1}]\n{chunk['text']}" for i, chunk in enumerate(context_chunks)])
+    messages = [
+        {"role": "user", "content": [{"text": f"Context:\n{context}\n\nQuestion: {question}"}]}
+    ]
+    converse_kwargs = {
+        "modelId": model_id,
+        "system": [{"text": (
+            "You are a helpful AI assistant. Answer questions using the provided document context "
+            "and the tools available to you. Use tools whenever live data (dates, entitlements, "
+            "payroll) is needed to give a complete answer. "
+            "If the answer cannot be found in the context or via tools, say so."
+        )}],
+        "toolConfig": TOOL_CONFIG,
+        "inferenceConfig": {"maxTokens": MAX_TOKENS, "temperature": TEMPERATURE},
+    }
+    if BEDROCK_GUARDRAIL_ID:
+        converse_kwargs["guardrailConfig"] = {
+            "guardrailIdentifier": BEDROCK_GUARDRAIL_ID,
+            "guardrailVersion": BEDROCK_GUARDRAIL_VERSION,
+        }
+
+    try:
+        for iteration in range(MAX_TOOL_ITERATIONS):
+            t0 = time.monotonic()
+            response = bedrock_runtime.converse(**converse_kwargs, messages=messages)
+            _emit_bedrock_metric("LLMLatency", (time.monotonic() - t0) * 1000)
+
+            stop_reason = response["stopReason"]
+            assistant_message = response["output"]["message"]
+            messages.append(assistant_message)
+            print(f"Iteration {iteration + 1}: stopReason={stop_reason}")
+
+            if stop_reason == "end_turn":
+                return next(
+                    block["text"]
+                    for block in assistant_message["content"]
+                    if "text" in block
+                )
+
+            if stop_reason == "tool_use":
+                tool_results = []
+                for block in assistant_message["content"]:
+                    if "toolUse" not in block:
+                        continue
+                    tool_use = block["toolUse"]
+                    result = execute_tool(tool_use["name"], tool_use.get("input", {}))
+                    tool_results.append({
+                        "toolResult": {
+                            "toolUseId": tool_use["toolUseId"],
+                            "content": [{"json": result}],
+                        }
+                    })
+                messages.append({"role": "user", "content": tool_results})
+
+        raise RuntimeError(f"Agentic loop did not terminate after {MAX_TOOL_ITERATIONS} iterations")
+
     except Exception as e:
-        print(f"Error calling Bedrock: {str(e)}")
+        print(f"Error in agentic loop: {str(e)}")
         raise
 
 # ---------- Lambda handler ----------
@@ -191,7 +225,7 @@ def handler(event, context):
         if not relevant_chunks:
             print("No chunks above relevance threshold — calling LLM without document context")
 
-        answer = generate_answer_with_bedrock(question, relevant_chunks)
+        answer = run_agentic_loop(question, relevant_chunks)
 
         sources = []
         for chunk in relevant_chunks[:3]:
