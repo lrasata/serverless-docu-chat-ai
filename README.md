@@ -149,7 +149,7 @@ A cloud-native application that allows users to chat with their documents using 
 3. **Text chunks embedded** → Using the configured Bedrock embedding model
 4. **Chunks indexed** → Stored in RDS PostgreSQL (`document_chunks` table) with pgvector
 5. **User asks a question** → Question embedded with the same model; last 10 messages sent as conversation history
-6. **Vector search** → pgvector cosine similarity finds the most relevant chunks above `min_relevance_score`
+6. **Hybrid search** → semantic (pgvector cosine) + lexical (BM25/FTS) run in parallel; results merged via Reciprocal Rank Fusion
 7. **Agentic loop starts** → Claude receives prior conversation turns, document context, and tool definitions via Bedrock Converse API
 8. **Tool calls (if needed)** → Claude calls tools to fetch live data; results fed back into conversation
 9. **Final answer generated** → Claude combines conversation history, document context, and tool results into a coherent response
@@ -363,9 +363,67 @@ supports pgvector.
 
   In all these cases ingestion succeeds but retrieval quality silently reverts to fixed-size behaviour. The fallback is logged (`PDF: no sections detected, falling back to fixed-size chunking`) in CloudWatch so you can measure how often it fires.
 
-- **Search type:**
-    - Currently, only **semantic search** via vector similarity is used.
-    - Adding a **lexical search (e.g., BM25)** could improve retrieval, especially for exact matches or technical terms.
+- **Search type — Hybrid Search (semantic + BM25)**
+
+  The `query-document` Lambda uses **hybrid search**: it runs two independent retrievers on every question and merges their results using Reciprocal Rank Fusion (RRF).
+
+  #### Why two retrievers?
+
+  Each retriever has a different strength profile:
+
+  | Retriever | How it works | Strong at | Weak at |
+  |---|---|---|---|
+  | **Semantic** (pgvector) | Converts the question into a vector; finds chunks with close vectors via cosine similarity | Conceptual questions ("What is the notice period?") — works even when exact words differ | Exact terms, codes, IDs ("Clause 4.2.1", "JWT", "RFC 7519") |
+  | **Lexical** (BM25 / PostgreSQL FTS) | Looks for chunks containing the actual words from the question; ranks by term frequency | Exact keyword matches — finds "JWT" even if the semantic meaning is weak | Synonyms, paraphrasing — "holiday" won't find a chunk about "annual leave" |
+
+  Neither retriever alone is sufficient. A policy document chat assistant needs both: users ask conceptual questions ("am I entitled to bereavement leave?") *and* exact-reference questions ("what does section 3.2 say?").
+
+  #### How the results are merged — Reciprocal Rank Fusion (RRF)
+
+  The two retrievers produce ranked lists with scores in completely different number ranges (cosine similarity 0–1 vs. BM25 term-frequency scores). Averaging or weighting raw scores is unreliable.
+
+  RRF discards raw scores entirely and uses **rank position only**. Each chunk gets a score of `1 / (60 + rank)` from each retriever, and the two scores are summed:
+
+  ```
+  rrf_score = 1/(60 + semantic_rank) + 1/(60 + lexical_rank)
+  ```
+
+  A chunk that appears in both lists gets contributions from both. A chunk only in one list gets half the score. The constant `60` (from the original RRF paper) dampens the gap between adjacent ranks — rank 1 and rank 2 are close in score, which prevents a single dominant result from burying everything else.
+
+  Example with `max_results = 5`:
+
+  | Chunk | Semantic rank | Lexical rank | RRF score |
+  |---|---|---|---|
+  | A — "Clause 4.2.1 states..." | #4 | #1 | 1/64 + 1/61 = **0.032** |
+  | B — thematically related | #1 | not found | 1/61 + 0 = 0.016 |
+  | C — contains the keyword | not found | #2 | 0 + 1/62 = 0.016 |
+
+  Chunk A wins because both retrievers agree it is relevant. Neither retriever alone would have surfaced it at the top.
+
+  #### Implementation
+
+  The entire hybrid query runs in a **single SQL round-trip** using PostgreSQL CTEs:
+
+  ```sql
+  WITH semantic AS ( ... cosine similarity, pre-filtered by MIN_RELEVANCE_SCORE ... ),
+       lexical  AS ( ... fts @@ plainto_tsquery('english', ?) ... ),
+       fused    AS ( ... FULL OUTER JOIN + RRF score ... )
+  SELECT ... ORDER BY rrf_score DESC LIMIT ?;
+  ```
+
+  The `fts` column on `document_chunks` is a `tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED` — PostgreSQL computes and stores it automatically on every insert, so no ingestion code change was needed.
+
+  `MIN_RELEVANCE_SCORE` (cosine similarity threshold, default `0.4`) is applied as a `WHERE` pre-filter **inside the semantic CTE**. This preserves the quality gate: completely unrelated chunks never enter the semantic ranked list. Lexical results are not pre-filtered — a chunk matching exact keywords is always worth surfacing regardless of its vector similarity score.
+
+  #### Trade-offs
+
+  | Trade-off                              | Detail                                                                                                                                                                                                                                                                                                                       |
+  |----------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+  | **Language**                           | `to_tsvector('english', ...)` uses English stemming and stop words. Documents in other languages get degraded lexical retrieval (stemming mismatch). Fixable by adding a `language` column and parameterising the dictionary.                                                                                                |
+  | **`fts` backfill on migration**        | When `ensure_table()` runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS fts ...` on an existing table, PostgreSQL rewrites the table to backfill the generated column. On a small staging dataset this is instant; on a large table it locks the table briefly. For production, run this migration during a maintenance window. |
+  | **RRF constant `k = 60`**              | Higher values reduce the score difference between ranks (flatter ranking). Lower values give more weight to top-ranked results. 60 is the standard default from the original paper and works well across most retrieval tasks without tuning.                                                                                |
+  | **No hybrid relevance threshold**      | The post-retrieval `MIN_RELEVANCE_SCORE` filter that previously applied to cosine scores is not applied to RRF scores (different scale). If both retrievers return nothing — no vector match above threshold AND no keyword match — the result set is empty and the LLM fires without context, same behaviour as before.     |
+  | **Alternative: weighted score fusion** | Instead of RRF, scores can be normalised (e.g. min-max) and combined as `α * semantic + (1-α) * lexical`. This requires tuning `α` per domain and per embedding model — more expressive but more fragile. RRF requires no tuning and is robust across domains, which is why it is the standard choice.                       |
 
 ## Monitoring
 

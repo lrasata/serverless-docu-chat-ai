@@ -89,43 +89,84 @@ def create_embedding(text):
         print(f"Error creating embedding: {str(e)}")
         raise
 
-def search_similar_chunks(question_embedding, user_id, document_id=None, max_results=MAX_RESULTS):
+RRF_K = 60  # RRF constant: higher value = smaller score gap between adjacent ranks.
+            # 60 is the standard default from the original RRF paper.
+
+def search_similar_chunks(question_embedding, question_text, user_id, document_id=None, max_results=MAX_RESULTS):
+    """Hybrid search: combines semantic (pgvector cosine) and lexical (BM25/FTS) retrieval
+    via Reciprocal Rank Fusion. Each retriever produces a ranked list; each chunk gets
+    1/(RRF_K + rank) from each list; scores are summed. Chunks appearing in both lists
+    are naturally promoted. Neither scorer's raw scale affects the other.
+
+    Semantic pre-filter: only chunks with cosine similarity >= MIN_RELEVANCE_SCORE enter
+    the semantic CTE, preserving the same quality gate as before. Lexical results are not
+    pre-filtered — a chunk matching exact keywords is always relevant regardless of its
+    vector similarity.
+    """
     try:
         conn = get_db_connection()
+        scope = "document_id = %s" if document_id else "document_id LIKE %s"
+        scope_val = document_id if document_id else f"uploads/users/{user_id}/%"
+
         with conn.cursor() as cur:
-            # The <=> operator is pgvector's cosine distance. ORDER BY embedding <=> vector → sorts by closest first (lowest distance)
-            if document_id:
-                cur.execute(
-                    """
-                    SELECT document_id, chunk_id, content,
-                           1 - (embedding <=> %s::vector) AS score
+            cur.execute(
+                f"""
+                WITH semantic AS (
+                    -- Vector similarity search. Filters by MIN_RELEVANCE_SCORE so only
+                    -- meaningfully similar chunks enter the fusion step.
+                    SELECT chunk_id,
+                           ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector) AS sem_rank
                     FROM document_chunks
-                    WHERE document_id = %s
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT %s;
-                    """,
-                    (question_embedding, document_id, question_embedding, max_results)
+                    WHERE {scope}
+                      AND 1 - (embedding <=> %s::vector) >= %s
+                    LIMIT %s
+                ),
+                lexical AS (
+                    -- Full-text search using PostgreSQL's built-in BM25-style ranking
+                    -- (ts_rank_cd). The fts column is a pre-computed tsvector generated
+                    -- from content — no ingestion change needed.
+                    SELECT chunk_id,
+                           ROW_NUMBER() OVER (ORDER BY ts_rank_cd(fts, query) DESC) AS lex_rank
+                    FROM document_chunks,
+                         plainto_tsquery('english', %s) AS query
+                    WHERE {scope}
+                      AND fts @@ query
+                    LIMIT %s
+                ),
+                fused AS (
+                    -- Reciprocal Rank Fusion: score = 1/(k+rank_semantic) + 1/(k+rank_lexical).
+                    -- FULL OUTER JOIN ensures chunks from either retriever are included.
+                    -- COALESCE(..., 0) gives 0 for the missing retriever leg.
+                    SELECT
+                        COALESCE(s.chunk_id, l.chunk_id) AS chunk_id,
+                        COALESCE(1.0 / (%s + s.sem_rank), 0) +
+                        COALESCE(1.0 / (%s + l.lex_rank), 0) AS rrf_score
+                    FROM semantic s
+                    FULL OUTER JOIN lexical l USING (chunk_id)
                 )
-            else:
-                cur.execute(
-                    """
-                    SELECT document_id, chunk_id, content,
-                           1 - (embedding <=> %s::vector) AS score
-                    FROM document_chunks
-                    WHERE document_id LIKE %s
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT %s;
-                    """,
-                    (question_embedding, f"uploads/users/{user_id}/%", question_embedding, max_results)
+                SELECT dc.document_id, dc.chunk_id, dc.content, f.rrf_score
+                FROM fused f
+                JOIN document_chunks dc USING (chunk_id)
+                ORDER BY f.rrf_score DESC
+                LIMIT %s;
+                """,
+                (
+                    question_embedding, scope_val, question_embedding, MIN_RELEVANCE_SCORE, max_results,
+                    question_text, scope_val, max_results,
+                    RRF_K, RRF_K,
+                    max_results,
                 )
+            )
             rows = cur.fetchall()
 
+        sem_count = sum(1 for r in rows if r[3] > 1.0 / (RRF_K + max_results))
+        print(f"Hybrid search returned {len(rows)} chunks (est. semantic contributions: {sem_count})")
         return [
             {"document_id": r[0], "chunk_id": r[1], "text": r[2], "score": float(r[3])}
             for r in rows
         ]
     except Exception as e:
-        print(f"Error searching pgvector: {str(e)}")
+        print(f"Error in hybrid search: {str(e)}")
         raise
 
 MAX_TOOL_ITERATIONS = 5
@@ -222,12 +263,15 @@ def handler(event, context):
         print(f"Processing question: {question}, document_id: {document_id}, user_id: {user_id}")
 
         question_embedding = create_embedding(question)
-        chunks = search_similar_chunks(question_embedding, user_id, document_id)
-        relevant_chunks = [c for c in chunks if c["score"] >= MIN_RELEVANCE_SCORE]
-        print(f"Chunks retrieved: {len(chunks)}, above threshold ({MIN_RELEVANCE_SCORE}): {len(relevant_chunks)}")
+        # Hybrid search: MIN_RELEVANCE_SCORE is applied inside the semantic CTE as a
+        # pre-filter. The returned score is an RRF score (not cosine similarity),
+        # so no second threshold filter is applied here — an empty result means both
+        # retrievers found nothing, and the LLM is still called without context.
+        relevant_chunks = search_similar_chunks(question_embedding, question, user_id, document_id)
+        print(f"Hybrid search: {len(relevant_chunks)} chunks passed to LLM")
 
         if not relevant_chunks:
-            print("No chunks above relevance threshold — calling LLM without document context")
+            print("No chunks retrieved by either retriever — calling LLM without document context")
 
         answer = run_agentic_loop(question, relevant_chunks, history=history)
 
