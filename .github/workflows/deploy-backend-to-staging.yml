@@ -137,6 +137,7 @@ jobs:
       TF_VAR_bedrock_model_inference_profile_arn: ${{secrets.BEDROCK_MODEL_INFERENCE_PROFILE_ARN}}
       TF_VAR_eval_model_arn: ${{secrets.EVAL_MODEL_ARN}}
       TF_VAR_max_search_results: 5
+      TF_VAR_min_relevance_score: 0.4
       TF_VAR_availability_zones: '["eu-central-1a","eu-central-1b"]'
       TF_VAR_db_instance_class: db.t4g.micro
     steps:
