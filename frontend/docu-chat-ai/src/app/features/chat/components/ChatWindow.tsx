@@ -99,7 +99,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages }) => {
                           color="text.disabled"
                           sx={{ mt: 0.5, display: "block" }}
                         >
-                          Document ID: {source.documentId}...
+                          Document ID: ...{source.documentId.split("/").pop()?.replace(/^[^_]+_/, "")}
                         </Typography>
                       </Box>
                     ))}
