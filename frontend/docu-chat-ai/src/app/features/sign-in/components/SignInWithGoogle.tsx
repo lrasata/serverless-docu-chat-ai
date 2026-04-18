@@ -41,7 +41,7 @@ const SignInWithGoogle: React.FC<SignInWithGoogleProps> = ({
         flexDirection: "column",
       }}
     >
-      <CardContent>
+      <CardContent sx={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
         <Typography variant="body1" mb={2}>
           Chat with your documents and more using AI.
         </Typography>
