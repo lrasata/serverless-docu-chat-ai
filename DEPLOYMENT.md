@@ -20,7 +20,7 @@ Before you begin, ensure you have:
 2. Go to "Model access" in the left sidebar
 3. Request access to:
    - **Amazon Titan Embeddings G1 - Text** (required for embeddings)
-   - **Anthropic Claude 4 Sonnet** (recommended for chat). Refer to [Claude LLMs documentation](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model)
+   - **Anthropic Claude 4.6 Sonnet** (recommended for chat). Refer to [Claude LLMs documentation](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model)
 
 Access is usually granted within minutes.
 
@@ -363,7 +363,7 @@ Estimated monthly costs (staging / low usage):
 | VPC Interface Endpoints (Bedrock, Secrets Manager, SNS) | ~$30-45/month                  |
 | Lambda                                                  | ~$5-10 (1M requests free tier) |
 | Bedrock — Titan Embeddings                              | $0.0001/1K tokens              |
-| Bedrock — Claude 4 Sonnet                               | $0.003/1K input tokens         |
+| Bedrock — Claude 4.6 Sonnet                             | $0.003/1K input tokens         |
 | S3 + CloudFront                                         | ~$1-5                          |
 | DynamoDB                                                | ~$1-2 (on-demand)              |
 | **Total**                                               | **~$55-80/month**              |

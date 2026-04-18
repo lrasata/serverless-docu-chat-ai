@@ -28,11 +28,11 @@ notification_email                = "your-email@your-domain.com"
 bucket_av_sns_findings_topic_name = "staging-bucket-av-findings"
 
 # Bedrock Configuration
-bedrock_model_inference_profile_arn   = "anthropic.claude-sonnet-4-20250514-v1:0"
+bedrock_model_inference_profile_arn   = "arn:aws:bedrock:eu-central-1:xxxx:inference-profile/eu.anthropic.claude-sonnet-4-6"
 max_search_results = 5
 
 # Note: Available Bedrock models:
-# - anthropic.claude-sonnet-4-20250514-v1:0 (Recommended - balanced performance)
+# - anthropic.claude-sonnet-4-6 (Recommended - balanced performance)
 # - anthropic.claude-3-haiku-20240307-v1:0 (Fast and cost-effective)
 # - anthropic.claude-3-opus-20240229-v1:0 (Most capable, higher cost)
 # - meta.llama3-70b-instruct-v1:0 (Open source alternative)
