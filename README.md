@@ -116,6 +116,14 @@ A cloud-native application that allows users to chat with their PDF documents us
     | `bedrock_foundation_model_arns`       | IAM        | Foundation model ARNs granted `bedrock:InvokeModel`. Needed because cross-region inference profiles route internally to underlying models in specific regions — IAM must permit those calls. Defaults to `arn:aws:bedrock:*::foundation-model/*` (any model, any region).        |
     | `llm_temperature`                     | Generation | Response randomness (`0.0` = deterministic, `1.0` = creative). Default: `0.7`.                                                                                                                                                                                                   |
     | `llm_max_tokens`                      | Generation | Maximum tokens in the response — caps answer length and Bedrock cost. Default: `2000`.                                                                                                                                                                                           |
+    | `min_relevance_score`                 | Retrieval  | Minimum cosine similarity score (0–1) a chunk must reach to be included as context. Chunks below this threshold are discarded before the LLM call. Default: `0.6`.                                                                                                               |
+
+  **Key design decision — the LLM always responds, even when no chunks pass the threshold.**
+
+  pgvector always returns results: it finds the *least dissimilar* vectors, not necessarily relevant ones. Without a threshold, low-quality chunks (e.g. a score of 40% on the query "hello") would be silently passed to the LLM as if they were meaningful context, degrading answer quality and leaking unrelated document content.
+
+  When no chunks reach `min_relevance_score`, the LLM is still called — but with an empty context. This lets it handle greetings, small talk, and out-of-scope questions naturally rather than returning a hard-coded error. The system prompt already instructs the LLM to say so when the answer cannot be found in context. Sources are only shown when at least one chunk passes the threshold.
+
   - Amazon Bedrock Guardrails for content moderation (applied to every `query-document` invocation):
 
     | Feature                  | Configuration                                       |

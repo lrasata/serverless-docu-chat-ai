@@ -189,16 +189,8 @@ def handler(event, context):
         print(f"Chunks retrieved: {len(chunks)}, above threshold ({MIN_RELEVANCE_SCORE}): {len(relevant_chunks)}")
 
         if not relevant_chunks:
-            return {
-                "statusCode": 200,
-                "headers": {"Content-Type": "application/json"},
-                "body": json.dumps({
-                    "answer": "I couldn't find any relevant information in the uploaded documents to answer your question.",
-                    "sources": []
-                })
-            }
+            print("No chunks above relevance threshold — calling LLM without document context")
 
-        print(f"Found {len(relevant_chunks)} relevant chunks")
         answer = generate_answer_with_bedrock(question, relevant_chunks)
 
         sources = []
