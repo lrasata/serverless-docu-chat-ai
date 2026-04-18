@@ -145,6 +145,7 @@ locals {
         BEDROCK_GUARDRAIL_ID                = module.bedrock_guardrails.guardrail_id
         BEDROCK_GUARDRAIL_VERSION           = module.bedrock_guardrails.guardrail_version
         EMBEDDING_MODEL                     = var.embedding_model
+        MIN_RELEVANCE_SCORE                 = var.min_relevance_score
       }
       # Policy unique to this Lambda
       iam_policy_statements = [

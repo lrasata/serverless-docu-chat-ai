@@ -114,6 +114,12 @@ variable "embedding_model" {
   default     = "amazon.titan-embed-image-v1"
 }
 
+variable "min_relevance_score" {
+  description = "Minimum cosine similarity score (0–1) for a chunk to be considered relevant. Chunks below this threshold are discarded before being sent to the LLM. Lower values return more results but risk sending irrelevant context."
+  type        = number
+  default     = 0.6
+}
+
 variable "embedding_dimensions" {
   description = "Output vector dimensions of the embedding model. Must match the model set in embedding_model: titan-embed-image-v1 = 1024, titan-embed-text-v1 = 1536, titan-embed-text-v2:0 = 1024."
   type        = number

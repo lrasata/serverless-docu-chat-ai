@@ -17,6 +17,7 @@ BEDROCK_GUARDRAIL_VERSION = os.environ.get("BEDROCK_GUARDRAIL_VERSION", "1")
 TEMPERATURE=float(os.environ.get("TEMPERATURE", "0.7"))
 MAX_TOKENS=int(os.environ.get("LLM_MAX_TOKENS", "2000"))
 EMBEDDING_MODEL=os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-image-v1")
+MIN_RELEVANCE_SCORE=float(os.environ.get("MIN_RELEVANCE_SCORE", "0.6"))
 
 # ---------- AWS clients ----------
 bedrock_runtime = boto3.client("bedrock-runtime", region_name=REGION)
@@ -183,7 +184,9 @@ def handler(event, context):
         print(f"Processing question: {question}, document_id: {document_id}, user_id: {user_id}")
 
         question_embedding = create_embedding(question)
-        relevant_chunks = search_similar_chunks(question_embedding, user_id, document_id)
+        chunks = search_similar_chunks(question_embedding, user_id, document_id)
+        relevant_chunks = [c for c in chunks if c["score"] >= MIN_RELEVANCE_SCORE]
+        print(f"Chunks retrieved: {len(chunks)}, above threshold ({MIN_RELEVANCE_SCORE}): {len(relevant_chunks)}")
 
         if not relevant_chunks:
             return {
