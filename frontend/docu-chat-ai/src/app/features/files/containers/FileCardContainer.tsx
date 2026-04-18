@@ -6,7 +6,7 @@ import {
   Tooltip,
   CircularProgress,
 } from "@mui/material";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import { useState } from "react";
@@ -87,7 +87,7 @@ const FileCardContainer = ({
           borderRadius: 2,
         }}
       >
-        <PictureAsPdfIcon sx={{ fontSize: 32, color: "text.disabled" }} />
+        <InsertDriveFileIcon sx={{ fontSize: 32, color: "text.disabled" }} />
         <Typography variant="body2" color="text.disabled">
           No files uploaded yet
         </Typography>
@@ -203,27 +203,16 @@ const FileCardContainer = ({
                 />
               )}
 
-              {/* PDF icon */}
-              <Box
-                sx={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 1.5,
-                  bgcolor: isSelected ? "primary.main" : "action.selected",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  mb: 1.5,
-                  transition: "background 0.15s",
-                }}
-              >
-                <PictureAsPdfIcon
-                  sx={{
-                    fontSize: 22,
-                    color: isSelected
-                      ? "primary.contrastText"
-                      : "text.secondary",
-                  }}
+              {/* File type badge */}
+              <Box sx={{ mb: 1.5 }}>
+                <InsertDriveFileIcon
+                  sx={{ fontSize: 28, color: isSelected ? "primary.main" : "text.disabled" }}
+                />
+                <Chip
+                  label={(file.filename.split(".").pop() ?? "file").toUpperCase()}
+                  size="small"
+                  color={isSelected ? "primary" : "default"}
+                  sx={{ fontSize: "0.6rem", height: 16, ml: 0.5, fontWeight: 700 }}
                 />
               </Box>
 
