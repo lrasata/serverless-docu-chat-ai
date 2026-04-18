@@ -32,7 +32,14 @@ const cognitoAuthConfig = {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <AuthProvider {...cognitoAuthConfig}>
+    <AuthProvider
+      {...cognitoAuthConfig}
+      onSigninCallback={() => {
+        // Remove the one-time OAuth code and state from the URL so a page
+        // refresh does not try to redeem an already-consumed code.
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }}
+    >
       <Provider store={store}>
         <App />
       </Provider>
