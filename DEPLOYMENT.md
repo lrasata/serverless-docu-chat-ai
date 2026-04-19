@@ -135,10 +135,10 @@ Common choices for `embedding_model`:
 
 #### LLM generation parameters
 
-| Variable          | Default | Description                                                                                                    |
-|-------------------|---------|----------------------------------------------------------------------------------------------------------------|
+| Variable          | Default | Description                                                                                                                   |
+|-------------------|---------|-------------------------------------------------------------------------------------------------------------------------------|
 | `llm_temperature` | `0.7`   | Controls response randomness. `0.0` = deterministic/factual, `1.0` = more creative. Lower values are safer for Q&A use cases. |
-| `llm_max_tokens`  | `2000`  | Maximum number of tokens in the model's response. Increase for longer answers, decrease to reduce Bedrock costs. |
+| `llm_max_tokens`  | `2000`  | Maximum number of tokens in the model's response. Increase for longer answers, decrease to reduce Bedrock costs.              |
 
 ### 3. Deploy Secrets Layer
 
