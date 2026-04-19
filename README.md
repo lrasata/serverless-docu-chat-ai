@@ -1,4 +1,6 @@
 # AI-Powered Document Chat
+![Staging Apply](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-backend-to-staging.yml/badge.svg)
+![Staging Apply](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-frontend-to-staging.yml/badge.svg)
 
 A serverless application that lets users chat with their uploaded documents using AI.
 Built on AWS Bedrock, PostgreSQL + pgvector, and React, using **Agentic RAG** to answer questions grounded in documents — with live tool calls when document context alone isn't enough.
@@ -60,6 +62,9 @@ Before this project, the following existed:
 ---
 
 ## Architecture & Design Decisions
+
+### Diagram
+<img src="docs/architecture.png" alt="Architecture Diagram" />
 
 ### Assumptions
 
