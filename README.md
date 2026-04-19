@@ -143,7 +143,7 @@ Both run in parallel on every query. Results are merged via **Reciprocal Rank Fu
 3. SNS triggers the `s3-ingestion` Lambda, which extracts text from the file, splits it into chunks, and converts each chunk into a vector using a Bedrock embedding model.
 4. Each chunk and its vector are stored as a row in PostgreSQL (pgvector).
 
-<img src="docs/upload-ingestion.png" width="500" alt="Upload Flow" />
+<img src="docs/upload-ingestion.png" alt="Upload Flow" />
 
 ### Supported formats
 
@@ -176,7 +176,7 @@ Both run in parallel on every query. Results are merged via **Reciprocal Rank Fu
 5. The LLM either answers directly or calls a tool. If it calls a tool, the application runs it and sends the result back. This repeats until the LLM produces a final answer.
 6. The answer and source chunks are returned to the user.
 
-<img src="docs/question-answer.png" width="500" alt="Question Answer Flow" />
+<img src="docs/question-answer.png" alt="Question Answer Flow" />
 
 ### The agentic loop
 
