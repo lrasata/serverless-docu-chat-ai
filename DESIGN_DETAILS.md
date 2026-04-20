@@ -1,6 +1,6 @@
 # Design Reference
 
-This document contains the technical detail behind the design decisions summarised in [README.md](README.md). It is intended as a reference during the technical discussion, not as onboarding material.
+This document contains the technical detail behind the design decisions summarized in [README.md](README.md). It is intended as a reference.
 
 ---
 
@@ -27,6 +27,8 @@ Each retriever has a fundamentally different failure mode. Running both and merg
 | **Semantic** (pgvector)             | Embeds the question into a vector; finds chunks with close vectors via cosine similarity | Conceptual questions, paraphrasing, synonyms                   | Exact terms, codes, IDs, version numbers              |
 | **Lexical** (BM25 / PostgreSQL FTS) | Finds chunks containing the actual words from the question; ranks by term frequency      | Exact keyword matches — `EMP-1042`, `Clause 4.2.1`, `RFC 7519` | Synonyms — `"holiday"` will not find `"annual leave"` |
 
+> Full-Text Search (FTS): PostgreSQL's built-in keyword search engine. It tokenizes text, stems words (e.g. "running" → "run"), and matches documents by exact or stemmed terms. It's the lexical side of your hybrid search, complementing pgvector's semantic side.
+
 ### Reciprocal Rank Fusion (RRF)
 
 The two retrievers produce scores in completely different ranges (cosine similarity 0–1 vs. BM25 term-frequency scores). Averaging or weighting raw scores is unreliable.
@@ -49,71 +51,18 @@ A chunk appearing in both ranked lists receives contributions from both. A chunk
 
 Chunk A wins because both retrievers agree it is relevant. Neither retriever alone would have surfaced it at the top.
 
-### SQL Implementation
-
-The entire hybrid query runs in a **single SQL round-trip** using PostgreSQL CTEs:
-
-```sql
-WITH semantic AS (
-  SELECT chunk_id, content, document_id,
-         1 - (embedding <=> query_embedding::vector) AS score,
-         ROW_NUMBER() OVER (ORDER BY embedding <=> query_embedding::vector) AS rank
-  FROM document_chunks
-  WHERE document_id = ANY(%(document_ids)s)
-    AND 1 - (embedding <=> query_embedding::vector) >= %(min_relevance_score)s
-  ORDER BY embedding <=> query_embedding::vector
-  LIMIT %(max_results)s
-),
-lexical AS (
-  SELECT chunk_id, content, document_id,
-         ts_rank(fts, plainto_tsquery('english', %(query_text)s)) AS score,
-         ROW_NUMBER() OVER (
-           ORDER BY ts_rank(fts, plainto_tsquery('english', %(query_text)s)) DESC
-         ) AS rank
-  FROM document_chunks
-  WHERE document_id = ANY(%(document_ids)s)
-    AND fts @@ plainto_tsquery('english', %(query_text)s)
-  ORDER BY score DESC
-  LIMIT %(max_results)s
-),
-fused AS (
-  SELECT
-    COALESCE(s.chunk_id, l.chunk_id)       AS chunk_id,
-    COALESCE(s.content, l.content)         AS content,
-    COALESCE(s.document_id, l.document_id) AS document_id,
-    COALESCE(1.0 / (60.0 + s.rank), 0)
-      + COALESCE(1.0 / (60.0 + l.rank), 0) AS rrf_score
-  FROM semantic s
-  FULL OUTER JOIN lexical l USING (chunk_id)
-)
-SELECT chunk_id, content, document_id, rrf_score
-FROM fused
-ORDER BY rrf_score DESC
-LIMIT %(max_results)s;
-```
-
-The `fts` column is a PostgreSQL generated column:
-
-```sql
-fts tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
-```
-
-PostgreSQL computes and stores it automatically on every insert — no ingestion code change was needed to add lexical retrieval.
-
 ### Threshold handling
 
-`MIN_RELEVANCE_SCORE` (cosine similarity, default `0.4`) is applied as a `WHERE` pre-filter **inside the semantic CTE only**. This preserves the quality gate for vector search: completely unrelated chunks never enter the semantic ranked list. Lexical results are not pre-filtered — a chunk matching exact keywords is always worth surfacing regardless of its vector similarity score.
+`MIN_RELEVANCE_SCORE` (cosine similarity, default `0.4`) is applied as a `WHERE` pre-filter **semantic retrieval step**. This preserves the quality gate for vector search: completely unrelated chunks never enter the semantic ranked list. Lexical results are not pre-filtered meaning a chunk matching exact keywords is always worth surfacing regardless of its vector similarity score.
 
-There is no post-fusion relevance threshold (RRF scores are on a different scale). If both retrievers return nothing — no vector match above threshold and no keyword match — the result set is empty and the LLM is called without context. The system prompt instructs it to say so rather than hallucinate.
+There is no post-fusion relevance threshold (RRF scores are on a different scale). If both retrievers return nothing (no vector match above threshold and no keyword match) the result set is empty and the LLM is called without context. The system prompt instructs it to say so rather than hallucinate.
 
-### Trade-offs
+### Design notes
 
-| Trade-off | Detail |
-|---|---|
-| **Language** | `to_tsvector('english', ...)` uses English stemming and stop words. Documents in other languages get degraded lexical retrieval. Fixable by adding a `language` column and parameterising the dictionary. |
-| **`fts` backfill on migration** | When `ensure_table()` runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS fts ...` on an existing table, PostgreSQL rewrites the table to backfill the generated column. On a small staging dataset this is instant; on a large table it locks the table briefly. For production, run this migration during a maintenance window. |
-| **RRF constant `k = 60`** | Higher values reduce the score difference between ranks (flatter ranking). Lower values give more weight to top-ranked results. 60 is the standard default and works well across most retrieval tasks without tuning. |
-| **Alternative: weighted score fusion** | Scores can be normalised (e.g. min-max) and combined as `α * semantic + (1-α) * lexical`. More expressive but requires tuning `α` per domain and per embedding model. RRF requires no tuning and is the standard default choice. |
+| Trade-off                              | Detail                                                                                                                                                                                                                                                                                                                       |
+|----------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Language**                           | `to_tsvector('english', ...)` uses English stemming and stop words. Documents in other languages get degraded lexical retrieval. Fixable by adding a `language` column and parameterising the dictionary.                                                                                                                    |
+| **RRF constant `k = 60`**              | Higher values reduce the score difference between ranks (flatter ranking). Lower values give more weight to top-ranked results. 60 is the standard default and works well across most retrieval tasks without tuning.                                                                                                        |
 
 ---
 
@@ -153,13 +102,17 @@ Used as the general fallback for richly formatted documents where structure extr
 
 Every `converse` call includes a `toolConfig` with a list of tool definitions. Each tool has three fields the LLM reads to decide when and how to use it:
 
-| Field | Purpose |
-|---|---|
-| `name` | Identifier used in the `toolUse` response block |
+| Field         | Purpose                                                                                                |
+|---------------|--------------------------------------------------------------------------------------------------------|
+| `name`        | Identifier used in the `toolUse` response block                                                        |
 | `description` | The primary signal — the LLM reads this to decide whether the tool is relevant to the current question |
-| `inputSchema` | JSON schema defining required arguments — the LLM must conform to this when calling the tool |
+| `inputSchema` | JSON schema defining required arguments — the LLM must conform to this when calling the tool           |
 
 `toolChoice: auto` means the LLM decides freely whether to call a tool or answer directly. No routing logic exists on the application side.
+
+### Tool implementation notes
+
+Tools are defined in `tools.py` and registered via `TOOL_CONFIG` on every `converse` call. All tools take no input arguments — the LLM calls them by name and `execute_tool()` dispatches to the correct function. Swapping a mock for a real API only requires changing the function body; the loop, dispatcher, and tool definitions are unchanged.
 
 ### Multi-tool chaining example
 
@@ -197,16 +150,7 @@ POST /api/chat
 }
 ```
 
-The Lambda prepends these turns to the Bedrock Converse `messages` array so the model can refer back to earlier exchanges within the same session.
-
-**Why client-side history instead of server-side session storage:**
-
-- No DynamoDB table or session ID management required
-- No cold-start lookup — history arrives with the request
-- Window size (`HISTORY_WINDOW = 10`) keeps token usage bounded; older turns are dropped automatically
-- Lambda remains fully stateless
-
-The trade-off is that history resets on page refresh, which is acceptable for a document chat use case where conversations are naturally short-lived.
+The Lambda builds a new `messages` array with history turns first, followed by the current question. The window size is controlled by `HISTORY_WINDOW = 10` — older turns are silently dropped, keeping token usage predictable without any application-side truncation logic.
 
 ---
 
@@ -214,14 +158,14 @@ The trade-off is that history resets on page refresh, which is acceptable for a 
 
 All LLM and embedding settings are controlled via Terraform variables. Switching the active LLM is a variable change, not a code change — the Bedrock Converse API provides a unified interface across all models.
 
-| Variable | Purpose | Default |
-|---|---|---|
-| `embedding_model` | Bedrock model ID used to embed document chunks and questions. Must stay consistent for the lifetime of the vector store — changing it requires full re-ingestion. | `amazon.titan-embed-image-v1` |
-| `bedrock_model_inference_profile_arn` | ARN of the Bedrock inference profile the Lambda calls at runtime. A cross-region profile routes across regions for availability. Changing this switches the active LLM. | — |
-| `bedrock_foundation_model_arns` | Foundation model ARNs granted `bedrock:InvokeModel` in IAM. Needed because cross-region inference profiles route internally to underlying models — IAM must permit those calls. | `arn:aws:bedrock:*::foundation-model/*` |
-| `llm_temperature` | Response randomness. `0.0` = deterministic, `1.0` = creative. | `0.7` |
-| `llm_max_tokens` | Maximum tokens in the LLM response. Caps answer length and Bedrock cost. | `2000` |
-| `min_relevance_score` | Minimum cosine similarity score a chunk must reach to be included in the semantic CTE. Chunks below this threshold are discarded before the LLM call. | `0.4` |
+| Variable                              | Purpose                                                                                                                                                                 | Default                                 |
+|---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------|
+| `embedding_model`                     | Bedrock model ID used to embed document chunks and questions. Must stay consistent for the lifetime of the vector store — changing it requires full re-ingestion.       | `amazon.titan-embed-image-v1`           |
+| `bedrock_model_inference_profile_arn` | ARN of the Bedrock inference profile the Lambda calls at runtime. A cross-region profile routes across regions for availability. Changing this switches the active LLM. | —                                       |
+| `bedrock_foundation_model_arns`       | Foundation model ARNs granted `bedrock:InvokeModel` in IAM. Needed because cross-region inference profiles route internally to underlying models.                       | `arn:aws:bedrock:*::foundation-model/*` |
+| `llm_temperature`                     | Response randomness. `0.0` = deterministic, `1.0` = creative.                                                                                                           | `0.7`                                   |
+| `llm_max_tokens`                      | Maximum tokens in the LLM response. Caps answer length and Bedrock cost.                                                                                                | `2000`                                  |
+| `min_relevance_score`                 | Minimum cosine similarity score a chunk must reach to be included in the semantic retrieval step. Chunks below this threshold are discarded before the LLM call.        | `0.4`                                   |
 
 ### Why the LLM always responds even when no chunks pass the threshold
 
@@ -231,9 +175,9 @@ When no chunks reach `min_relevance_score`, the LLM is still called but with an 
 
 ### Bedrock throttling risk on large documents
 
-Bedrock enforces two limits on the Titan Embed model: tokens per minute (TPM) and requests per minute (RPM). A large document (e.g. a 100-page PDF producing hundreds of chunks) fires embedding calls in a tight loop and can exhaust both quotas quickly, especially outside `us-*` regions where default quotas are lower.
+Bedrock enforces two limits on the Titan Embed model: tokens per minute (TPM) and requests per minute (RPM). A large document (e.g., a 100-page PDF producing hundreds of chunks) fires embedding calls in a tight loop and can exhaust both quotas quickly, especially outside `us-*` regions where default quotas are lower.
 
-`create_embedding` retries up to 3 times on `ThrottlingException`, `ServiceUnavailableException`, and `ModelTimeoutException` using exponential backoff with jitter (`2^attempt + random(0–1s)`, capped at 30s). After all retries are exhausted the exception propagates, the Lambda retries the full invocation, and the event is routed to the DLQ if it still fails.
+`create_embedding` retries up to three times on `ThrottlingException`, `ServiceUnavailableException`, and `ModelTimeoutException` using exponential backoff with jitter (`2^attempt + random(0–1s)`, capped at 30s). After all retries are exhausted the exception propagates, the Lambda retries the full invocation, and the event is routed to the DLQ if it still fails.
 
 ---
 
@@ -282,36 +226,5 @@ The current architecture works well for demos and small-scale usage (PDFs up to 
 | **Lambda timeout on large documents**     | A 100-page PDF produces hundreds of chunks; embedding each one sequentially can exhaust the Lambda 15-minute timeout  | Queue-driven ingestion: SQS + workers or Step Functions for reliable, high-volume processing |
 | **Bedrock TPM/RPM on concurrent uploads** | Multiple large uploads firing simultaneously exhaust Bedrock throttling quotas                                        | Throttle concurrency at the SQS consumer level; raise soft limits via AWS Support            |
 | **RDS connection exhaustion**             | Each Lambda invocation opens a DB connection; high concurrency exhausts `max_connections` on `db.t4g.micro`           | RDS Proxy to pool connections; scale up instance class                                       |
-| **pgvector ANN search latency**           | Cosine similarity scales with the number of stored vectors; at large scale an HNSW or IVFFlat index is needed         | Create an HNSW index on the `embedding` column (`CREATE INDEX ... USING hnsw`)               |
+| **pgvector search at scale**              | pgvector does not scale horizontally; at high vector volume query latency degrades                                    | Migrate to OpenSearch Serverless or Aurora PostgreSQL with pgvector                          |
 | **No job tracking**                       | Ingestion retries are best-effort via DLQ; there is no visibility into whether a specific document was fully ingested | Add a `processing_status` field to the DynamoDB document metadata table                      |
-
----
-
-## Production Readiness Checklist
-
-### RAG quality
-- [x] Golden Q&A datasets built for UDHR (41 questions) and RFC 7519 (57 questions)
-- [x] Automated LLM-as-judge evaluator (Claude Opus judging Claude Sonnet answers), results stored in S3
-- [ ] Fix retrieval for short introductory chunks (reduce chunk size, increase overlap)
-- [ ] Measure retrieval Hit Rate in isolation — current scoring evaluates end-to-end quality only
-- [ ] Human review of evaluation outputs — fully automated LLM judge is insufficient on its own
-
-### Reliability
-- [x] DLQ on SNS → Lambda subscription for failed ingestion events
-- [x] Exponential backoff with jitter on Bedrock API calls
-- [x] Atomic chunk writes — all chunks committed in a single transaction; failure triggers rollback, no orphaned chunks
-
-### Security
-- [x] AWS WAF on CloudFront and API Gateway
-- [x] Secrets Manager rotation for RDS credentials
-- [ ] MFA enforcement for Cognito users
-- [ ] CloudTrail for full API audit logging
-
-### Observability
-- [x] CloudWatch Alarms for Lambda errors, RDS connections, API Gateway 5xx, DLQ depth
-- [x] CloudWatch Dashboard for key metrics
-- [x] Custom metrics for Bedrock embedding and LLM latency
-
-### Cost
-- [ ] Reserved instances for RDS in production (up to 40% savings)
-- [ ] S3 lifecycle rules to archive or delete old document uploads

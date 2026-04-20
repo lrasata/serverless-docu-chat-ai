@@ -2,8 +2,8 @@
 ![Staging Apply](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-backend-to-staging.yml/badge.svg)
 ![Staging Apply](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-frontend-to-staging.yml/badge.svg)
 
-A serverless application that lets users chat with their uploaded documents using AI.
-Built on AWS Bedrock, PostgreSQL + pgvector, and React, using **Agentic RAG** to answer questions grounded in documents — with live tool calls when document context alone isn't enough.
+A cloud-native application that lets users chat with their uploaded documents using AI.
+Built on AWS Bedrock, PostgreSQL + pgvector, and React, using **Agentic RAG** to answer questions grounded in documents and with live tool calls when document context alone isn't enough.
 
 > ⚠️ Demo purposes only.
 
@@ -31,12 +31,12 @@ Built on AWS Bedrock, PostgreSQL + pgvector, and React, using **Agentic RAG** to
 
 ## What Was Already Built
 
-Before this project, the following existed:
+Prior to the technical assignment, the following has already been built:
 
-- React + TypeScript frontend with AWS Cognito (Google OAuth) authentication
+- **React + TypeScript** frontend with AWS Cognito (Google OAuth) authentication
 - File upload flow via a pre-built Terraform module: [infra-file-uploader](https://github.com/lrasata/infra-file-uploader)
-- Document ingestion Lambda (Python): extracts text, creates fixed-size chunks, stores vectors in PostgreSQL
-- Query Lambda (Python): embeds the question, retrieves similar chunks with cosine search, passes them to an LLM
+- Document ingestion Lambda (**Python**): extracts text, creates fixed-size chunks, stores vectors in PostgreSQL (no multimodal support)
+- Query Lambda (**Python**): embeds the question, retrieves similar chunks with cosine search, passes them to an LLM
 
 ## What I Built
 
@@ -51,10 +51,10 @@ Before this project, the following existed:
 ## All Features
 
 - **Document Upload:** `.pdf`, `.txt`, `.md`, `.docx` supported
-- **Hybrid Search:** semantic + BM25 merged via Reciprocal Rank Fusion
+- **Hybrid Search:** semantic and lexical (BM25) search merged via Reciprocal Rank Fusion
 - **Agentic Tool Use:** LLM calls tools mid-conversation for live data ⚠️ *currently mocked*
 - **Conversation Memory:** 5-turn rolling window, client-side
-- **Any Bedrock LLM:** switching models is a single Terraform variable change; tested with Claude Sonnet 4.6
+- **Any Bedrock LLM:** switching models is a single Terraform variable change. This project was tested with Claude Sonnet 4.6
 - **Secure Authentication:** AWS Cognito with Google OAuth
 - **Serverless:** Lambda + API Gateway, auto-scaling, pay-per-use
 - **Infrastructure as Code:** full Terraform deployment across four independent layers: secrets, cognito, backend, frontend
@@ -68,10 +68,10 @@ Before this project, the following existed:
 
 ### Assumptions
 
-- One embedding model is set at deploy time and never changed mid-deployment (changing it requires full re-ingestion).
-- Tool data is mocked. In production these would call real HR or payroll APIs.
+- One embedding model is set at deployment time and never changed mid-deployment (changing it requires full re-ingestion).
+- Tool data is mocked. In production these would call real APIs.
 - The `min_relevance_score` threshold (default `0.4`) is tuned for the Titan embedding model. Multimodal models produce lower similarity scores and may need a lower threshold.
-- BM25 results bypass the `min_relevance_score` filter. An exact keyword match is always sent to the LLM regardless of its semantic score — a low embedding similarity on an exact match means the model didn't find it conceptually close, not that it's irrelevant.
+- Lexical search (BM25) results bypass the `min_relevance_score` filter. An exact keyword match is always sent to the LLM regardless of its semantic score. A low embedding similarity on an exact match means the model didn't find it conceptually close, not that it's irrelevant.
 - Conversation history is capped at 10 messages to keep token usage predictable.
 - Documents are assumed to be in English; multi-language support requires parameterizing the PostgreSQL FTS dictionary.
 
@@ -84,23 +84,21 @@ The project has two requirements:
 RAG alone covers requirement 1 but not 2 because documents can't answer questions about live data.
 Agentic RAG adds tool-calling so the LLM can fetch live data mid-conversation and combine it with document context in a single answer.
 
-Main trade-off: answer quality depends on retrieval quality. Wrong chunks = wrong context = wrong answer, regardless of model quality.
-
 ### Where to store vectors❓
 
 A vector store saves text chunks as numerical arrays (embeddings) so they can be searched by meaning at query time. Without it, there is nowhere to index the document chunks after ingestion.
 
 Several options exist:
 
-| Option                       | Cost            | Notes                         |
-|------------------------------|-----------------|-------------------------------|
-| Pinecone / Weaviate / Qdrant | Pay-per-use     | Data leaves AWS               |
-| OpenSearch Serverless        | ~$700/month min | Expensive at low traffic      |
-| Amazon S3 Vectors (2025)     | Very cheap      | Immature tooling              |
-| **PostgreSQL + pgvector** ✅  | ~$13/month      | Good enough for this use case |
+| Option                                | Cost            | Notes                                                                   |
+|---------------------------------------|-----------------|-------------------------------------------------------------------------|
+| Pinecone / Weaviate / Qdrant          | Pay-per-use     | Data leaves AWS                                                         |
+| OpenSearch Serverless                 | ~$350/month min | Expensive at low traffic                                                |
+| Amazon S3 Vectors (GA since Dec 2025) | Very cheap      | Query costs scale with index size. No built-in lexical/BM25 capability  |
+| **PostgreSQL + pgvector** ✅           | ~$13/month      | Good enough for this use case                                           |
 
-PostgreSQL + pgvector stays inside the VPC, handles both vector and lexical search in one place, and costs almost nothing at demo scale.
-The trade-off is it won't scale horizontally — at high volume, migrate to Aurora PostgreSQL or a dedicated vector store.
+PostgreSQL + pgvector + FTS (Full-Text Search) stays inside the VPC, handles both vector and lexical search in one place, and has low costs for demo scale.
+The trade-off is it won't scale horizontally. At high volume, migrate to Aurora PostgreSQL or a dedicated vector store.
 
 ### Why Hybrid Search❓
 
@@ -160,8 +158,8 @@ Both run in parallel on every query. Results are merged via **Reciprocal Rank Fu
 
 ### Trade-offs and failure modes
 
-- **PDF silent fallback** — `pdfplumber` loses visual formatting. Section detection will silently fall back for scanned PDFs, multi-column layouts, and image-based headings. Logged to CloudWatch so the fallback rate is measurable.
-- **Embedding model lock-in❗** — changing the embedding model invalidates all stored vectors; full re-ingestion required.
+- **PDF silent fallback:** `pdfplumber` loses visual formatting. Section detection will silently fall back for scanned PDFs, multi-column layouts, and image-based headings. Logged to CloudWatch so the fallback rate is measurable.
+- **Embedding model lock-in❗:** changing the embedding model invalidates all stored vectors; full re-ingestion required.
 
 ---
 
@@ -170,7 +168,7 @@ Both run in parallel on every query. Results are merged via **Reciprocal Rank Fu
 ### How it works
 
 1. The user types a question. The frontend sends it with the recent conversation history.
-2. The question is embedded using the same model.
+2. The question is embedded using the same model as the ingestion.
 3. The backend runs a **hybrid search**: semantic (vector similarity) + lexical (keyword match). Results are merged via RRF.
 4. The top chunks, conversation history, and tool definitions are sent to the LLM.
 5. The LLM either answers directly or calls a tool. If it calls a tool, the application runs it and sends the result back. This repeats until the LLM produces a final answer.
@@ -195,7 +193,24 @@ converse(system prompt + document context + history + tool definitions)
                         (repeats up to MAX_TOOL_ITERATIONS = 5)
 ```
 
-The LLM decides autonomously whether to call a tool or answer directly. If the loop hits 5 iterations without `end_turn`, the Lambda returns a 500.
+**The LLM decides autonomously whether to call a tool or answer directly**. If the loop hits five iterations without `end_turn`, the Lambda returns a 500.
+
+Converse arguments provided:
+```python
+    converse_kwargs = {
+        "modelId": model_id,
+        "system": [{"text": (
+            "You are a helpful AI assistant. Answer questions using the provided document context "
+            "and the tools available to you. Use tools whenever live data (dates, entitlements, "
+            "payroll) is needed to give a complete answer. "
+            "If the answer cannot be found in the context or via tools, say so."
+        )}],
+        "toolConfig": TOOL_CONFIG,
+        "inferenceConfig": {"maxTokens": MAX_TOKENS, "temperature": TEMPERATURE},
+    }
+```
+
+> The sentence `"Use tools whenever live data (dates, entitlements, payroll) is needed"` is the key instruction that tells the LLM when to call a tool rather than answering from document context alone.
 
 ### Available tools
 
@@ -209,7 +224,7 @@ The LLM decides autonomously whether to call a tool or answer directly. If the l
 
 ### Conversation memory
 
-The frontend holds all messages in React state and sends the last 10 (5 turns) with every request. The Lambda prepends these to the Bedrock Converse `messages` array.
+**The frontend holds all messages in React state** and sends the last 10 (5 turns) with every request. The Lambda builds the Bedrock Converse `messages` array with history first, followed by the current question.
 
 This keeps the Lambda fully stateless (no session table, no cold-start lookup). History resets on page refresh, which is acceptable for short-lived document chat sessions.
 
@@ -218,14 +233,17 @@ This keeps the Lambda fully stateless (no session table, no cold-start lookup). 
 ## What I'd Change With More Time
 
 **Retrieval quality**
-- Measure retrieval Hit Rate independently (not just end-to-end answer quality) to verify the right chunks are being retrieved
-- Reduce chunk size and increase overlap for short introductory sections, which currently under-retrieve
-- Add human review to the evaluation pipeline — LLM-as-judge alone is not sufficient
+
+Evaluation options, from simplest to most rigorous:
+
+1. **LLM-as-judge:** ask a model to score answer relevance and faithfulness against retrieved chunks. A basic version of this was done in a previous iteration; at scale on real documents it requires more work (cost, prompt design, ground truth).
+2. **Hit Rate / Recall@k:** check whether the correct chunk appears in the top-k retrieved results, independently of answer quality. Useful for isolating retrieval failures from generation failures.
+3. **Human review:** a human labels whether the retrieved chunks and final answer are correct. The most reliable signal but the most expensive.
 
 **Robustness**
 - Replace mocked tools with real API integrations
-- Add per-document language detection to parameterise the FTS dictionary
-- Add a reranker (e.g. Cohere Rerank) between retrieval and generation for ambiguous queries
+- Add per-document language detection to parameterize the FTS dictionary
+- Add a reranker (e.g., Cohere Rerank): retrieve more chunks than needed, then use a reranker to re-score them by reading the question and each chunk together, keeping only the most relevant ones before sending context to the LLM. Improves answer quality on vague or ambiguous questions.
 
 **Scale**
 - Replace synchronous Lambda ingestion with a queue-driven approach (SQS + Step Functions) for large documents and concurrent uploads
@@ -234,5 +252,5 @@ This keeps the Lambda fully stateless (no session table, no cold-start lookup). 
 
 ## Further Reading
 
-- [DESIGN.md](DESIGN_DETAILS.md) — hybrid search, RRF implementation, chunking rationale, Bedrock configuration, monitoring, and scalability limits
+- [DESIGN_DETAILS.md](DESIGN_DETAILS.md) — hybrid search, RRF implementation, chunking rationale, Bedrock configuration, monitoring, and scalability limits
 - [DEPLOYMENT.md](DEPLOYMENT.md) — infrastructure setup and Terraform configuration

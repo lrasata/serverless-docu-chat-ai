@@ -1,8 +1,6 @@
 from datetime import date
 
-
 # ---------- Tool definitions (Bedrock Converse toolSpec format) ----------
-
 TOOL_SPECS = [
     {
         "toolSpec": {
@@ -52,7 +50,6 @@ TOOL_CONFIG = {
 
 
 # ---------- Mock implementations ----------
-
 def get_current_date() -> dict:
     return {"today": date.today().isoformat()}
 
@@ -75,7 +72,6 @@ def get_my_payroll_info() -> dict:
 
 
 # ---------- Dispatcher ----------
-
 def execute_tool(name: str, tool_input: dict) -> dict:
     print(f"Executing tool: {name} with input: {tool_input}")
     if name == "get_current_date":
