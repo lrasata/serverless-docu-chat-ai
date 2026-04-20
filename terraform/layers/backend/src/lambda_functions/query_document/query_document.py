@@ -19,6 +19,9 @@ TEMPERATURE=float(os.environ.get("TEMPERATURE", "0.7"))
 MAX_TOKENS=int(os.environ.get("LLM_MAX_TOKENS", "2000"))
 EMBEDDING_MODEL=os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-image-v1")
 MIN_RELEVANCE_SCORE=float(os.environ.get("MIN_RELEVANCE_SCORE", "0.4"))
+MAX_TOOL_ITERATIONS = 10
+RRF_K = 60  # RRF constant: higher value = smaller score gap between adjacent ranks.
+# 60 is the standard default from the original RRF paper.
 
 # ---------- AWS clients ----------
 bedrock_runtime = boto3.client("bedrock-runtime", region_name=REGION)
@@ -88,9 +91,6 @@ def create_embedding(text):
     except Exception as e:
         print(f"Error creating embedding: {str(e)}")
         raise
-
-RRF_K = 60  # RRF constant: higher value = smaller score gap between adjacent ranks.
-            # 60 is the standard default from the original RRF paper.
 
 def search_similar_chunks(question_embedding, question_text, user_id, document_id=None, max_results=MAX_RESULTS):
     """Hybrid search: combines semantic (pgvector cosine) and lexical (BM25/FTS) retrieval
@@ -168,8 +168,6 @@ def search_similar_chunks(question_embedding, question_text, user_id, document_i
     except Exception as e:
         print(f"Error in hybrid search: {str(e)}")
         raise
-
-MAX_TOOL_ITERATIONS = 5
 
 def run_agentic_loop(question, context_chunks, history=None, model_id=BEDROCK_MODEL_INFERENCE_PROFILE_ARN):
     context = "\n\n".join([f"[Chunk {i+1}]\n{chunk['text']}" for i, chunk in enumerate(context_chunks)])

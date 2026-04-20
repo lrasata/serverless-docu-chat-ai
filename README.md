@@ -31,14 +31,14 @@ Built on AWS Bedrock, PostgreSQL + pgvector, and React, using **Agentic RAG** to
 
 ## What Was Already Built
 
-Prior to the technical assignment, the following has already been built:
+Prior to the technical assignment, I have already built the following:
 
 - **React + TypeScript** frontend with AWS Cognito (Google OAuth) authentication
 - File upload flow via a pre-built Terraform module: [infra-file-uploader](https://github.com/lrasata/infra-file-uploader)
 - Document ingestion Lambda (**Python**): extracts text, creates fixed-size chunks, stores vectors in PostgreSQL (no multimodal support)
 - Query Lambda (**Python**): embeds the question, retrieves similar chunks with cosine search, passes them to an LLM
 
-## What I Built
+## What I Built Additionally 
 
 - **Multimodal embeddings:** switched to Amazon Titan Multimodal Embeddings
 - **Chunking strategy per format:** PDF, Markdown, DOCX, and plain text each use a different chunking approach suited to their structure
@@ -190,7 +190,7 @@ converse(system prompt + document context + history + tool definitions)
       ├── end_turn  →  return answer ✓
       │
       └── tool_use  →  execute tool(s)  →  append results  →  converse again
-                        (repeats up to MAX_TOOL_ITERATIONS = 5)
+                        (repeats up to MAX_TOOL_ITERATIONS = 10)
 ```
 
 **The LLM decides autonomously whether to call a tool or answer directly**. If the loop hits five iterations without `end_turn`, the Lambda returns a 500.
