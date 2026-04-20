@@ -12,7 +12,6 @@ This document contains the technical detail behind the design decisions summariz
 4. [Bedrock Configuration](#bedrock-configuration)
 5. [Monitoring & Alarms](#monitoring--alarms)
 6. [Scalability Limits](#scalability-limits)
-7. [Production Readiness Checklist](#production-readiness-checklist)
 
 ---
 

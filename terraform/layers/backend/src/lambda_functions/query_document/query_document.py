@@ -99,7 +99,7 @@ def search_similar_chunks(question_embedding, question_text, user_id, document_i
     are naturally promoted. Neither scorer's raw scale affects the other.
 
     Semantic pre-filter: only chunks with cosine similarity >= MIN_RELEVANCE_SCORE enter
-    the semantic CTE, preserving the same quality gate as before. Lexical results are not
+    the semantic retrieval step, preserving the same quality gate as before. Lexical results are not
     pre-filtered — a chunk matching exact keywords is always relevant regardless of its
     vector similarity.
     """
@@ -261,7 +261,7 @@ def handler(event, context):
         print(f"Processing question: {question}, document_id: {document_id}, user_id: {user_id}")
 
         question_embedding = create_embedding(question)
-        # Hybrid search: MIN_RELEVANCE_SCORE is applied inside the semantic CTE as a
+        # Hybrid search: MIN_RELEVANCE_SCORE is applied inside the semantic retrieval step as a
         # pre-filter. The returned score is an RRF score (not cosine similarity),
         # so no second threshold filter is applied here — an empty result means both
         # retrievers found nothing, and the LLM is still called without context.

@@ -2,6 +2,16 @@
 
 This infrastructure is deployed via **GitHub Actions** and has been tested through it. The workflows handle Lambda builds, Terraform applies, and frontend deployment automatically.
 
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Terraform Layers](#terraform-layers)
+3. [Terraform Variables](#terraform-variables)
+4. [CI/CD with GitHub Actions](#cicd-with-github-actions)
+5. [Verification Checklist](#verification-checklist)
+6. [Costs](#costs)
+7. [Cleanup](#cleanup)
+
 ---
 
 ## Prerequisites

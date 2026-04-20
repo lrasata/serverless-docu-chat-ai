@@ -12,13 +12,13 @@ Built on AWS Bedrock, PostgreSQL + pgvector, and React, using **Agentic RAG** to
 ## Table of Contents
 
 1. [What Was Already Built](#what-was-already-built)
-2. [What I Built](#what-i-built)
+2. [What I Built Additionally](#what-i-built-additionally)
 3. [All Features](#all-features)
 4. [Architecture & Design Decisions](#architecture--design-decisions)
 5. [Ingestion](#ingestion)
 6. [Query & Answer](#query--answer)
-7. [Assumptions](#assumptions)
-8. [What I'd Change With More Time](#what-id-change-with-more-time)
+7. [What I'd Change With More Time](#what-id-change-with-more-time)
+8. [Project Structure](#project-structure)
 9. [Further Reading](#further-reading)
 
 ---
@@ -247,6 +247,31 @@ Evaluation options, from simplest to most rigorous:
 
 **Scale**
 - Replace synchronous Lambda ingestion with a queue-driven approach (SQS + Step Functions) for large documents and concurrent uploads
+
+---
+
+## Project Structure
+
+```
+docu-chat-ai/
+├── .github/workflows/               # CI/CD: deploy backend, frontend, destroy
+├── docs/                            # Architecture and UI screenshots
+├── frontend/docu-chat-ai/           # React + TypeScript app
+│   └── src/app/
+│       ├── features/                # chat, files, sign-in
+│       └── shared/                  # API clients, components, Redux store
+└── terraform/
+    ├── environments/                # staging.tfvars, prod.tfvars.example
+    └── layers/
+        ├── secrets/                 # Secrets Manager
+        ├── cognito/                 # Cognito User Pool + Google IdP
+        ├── backend/                 # Lambda, API Gateway, RDS, VPC
+        │   └── src/lambda_functions/
+        │       ├── s3_ingestion/    # Text extraction and chunking (chunking.py, extraction.py)
+        │       ├── query_document/  # Hybrid search + agentic loop (query_document.py, tools.py)
+        │       └── rag_evaluation/  # LLM-as-judge evaluator + golden datasets
+        └── frontend/                # S3, CloudFront, Route53
+```
 
 ---
 
