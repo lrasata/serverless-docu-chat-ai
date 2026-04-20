@@ -1,9 +1,15 @@
 import axios, { type AxiosInstance } from "axios";
 import { API_BACKEND_URL } from "../constants/constants.ts";
 
+export interface ConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface ChatRequest {
   question: string;
   documentId?: string;
+  history?: ConversationTurn[];
 }
 
 export interface ChatSource {
@@ -70,15 +76,17 @@ class ChatApiService {
     documentId: string,
     question: string,
     token: string,
+    history?: ConversationTurn[],
   ): Promise<ChatResponse> {
-    return this.sendMessage({ question, documentId }, token);
+    return this.sendMessage({ question, documentId, history }, token);
   }
 
   async queryAllDocuments(
     question: string,
     token: string,
+    history?: ConversationTurn[],
   ): Promise<ChatResponse> {
-    return this.sendMessage({ question }, token);
+    return this.sendMessage({ question, history }, token);
   }
 }
 

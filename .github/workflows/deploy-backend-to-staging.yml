@@ -132,9 +132,12 @@ jobs:
       TF_VAR_s3_ingestion_lambda_code_key: "${{ github.event.inputs.environment }}/s3-ingestion.zip"
       TF_VAR_s3_query_document_lambda_code_bucket: docu-chat-ai-lambda-s3-query-document
       TF_VAR_s3_query_document_lambda_code_key: "${{ github.event.inputs.environment }}/s3-query-document.zip"
+      TF_VAR_embedding_model_arn: ${{secrets.EMBEDDING_MODEL_ARN}}
+      TF_VAR_embedding_dimensions: 1024
       TF_VAR_bedrock_model_inference_profile_arn: ${{secrets.BEDROCK_MODEL_INFERENCE_PROFILE_ARN}}
       TF_VAR_eval_model_arn: ${{secrets.EVAL_MODEL_ARN}}
       TF_VAR_max_search_results: 5
+      TF_VAR_min_relevance_score: 0.4
       TF_VAR_availability_zones: '["eu-central-1a","eu-central-1b"]'
       TF_VAR_db_instance_class: db.t4g.micro
     steps:
@@ -221,24 +224,40 @@ jobs:
       - name: Package S3 Ingestion Lambda
         run: |
           cd terraform/layers/backend/src/lambda_functions/s3_ingestion
-          cp s3_ingestion.py build/
+          cp *.py build/
           cd build
           zip -r ../lambda_s3_ingestion.zip .
 
       - name: Package Query Document Lambda
         run: |
           cd terraform/layers/backend/src/lambda_functions/query_document
-          cp query_document.py build/
+          cp *.py build/
           cd build
           zip -r ../lambda_query_document.zip .
 
       - name: Upload S3 Ingestion Lambda to S3
         run: |
+          if ! aws s3api head-bucket --bucket $TF_VAR_s3_ingestion_lambda_code_bucket 2>/dev/null; then
+            if [ "$TF_VAR_region" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket $TF_VAR_s3_ingestion_lambda_code_bucket
+            else
+              aws s3api create-bucket --bucket $TF_VAR_s3_ingestion_lambda_code_bucket \
+                --create-bucket-configuration LocationConstraint=$TF_VAR_region
+            fi
+          fi
           aws s3 cp terraform/layers/backend/src/lambda_functions/s3_ingestion/lambda_s3_ingestion.zip \
                     s3://$TF_VAR_s3_ingestion_lambda_code_bucket/$TF_VAR_s3_ingestion_lambda_code_key
 
       - name: Upload Query Document Lambda to S3
         run: |
+          if ! aws s3api head-bucket --bucket $TF_VAR_s3_query_document_lambda_code_bucket 2>/dev/null; then
+            if [ "$TF_VAR_region" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket $TF_VAR_s3_query_document_lambda_code_bucket
+            else
+              aws s3api create-bucket --bucket $TF_VAR_s3_query_document_lambda_code_bucket \
+                --create-bucket-configuration LocationConstraint=$TF_VAR_region
+            fi
+          fi
           aws s3 cp terraform/layers/backend/src/lambda_functions/query_document/lambda_query_document.zip \
                     s3://$TF_VAR_s3_query_document_lambda_code_bucket/$TF_VAR_s3_query_document_lambda_code_key
 

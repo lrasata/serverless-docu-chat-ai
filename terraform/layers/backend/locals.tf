@@ -16,9 +16,11 @@ locals {
       s3_key       = var.s3_ingestion_lambda_code_key
       # Variables unique to this Lambda
       environment_vars = {
-        RDS_SECRET_ARN  = module.rds.rds_secret_arn
-        DOCUMENTS_TABLE = module.file_uploader.dynamo_db_table_name
-        REGION          = var.region
+        RDS_SECRET_ARN       = module.rds.rds_secret_arn
+        DOCUMENTS_TABLE      = module.file_uploader.dynamo_db_table_name
+        REGION               = var.region
+        EMBEDDING_MODEL      = var.embedding_model
+        EMBEDDING_DIMENSIONS = var.embedding_dimensions
       }
       # Policy unique to this Lambda
       iam_policy_statements = [
@@ -41,7 +43,7 @@ locals {
         {
           Effect   = "Allow"
           Action   = ["bedrock:InvokeModel"]
-          Resource = ["arn:aws:bedrock:${var.region}::foundation-model/amazon.titan-embed-text-v1"]
+          Resource = ["arn:aws:bedrock:${var.region}::foundation-model/${var.embedding_model}"]
         },
         {
           Effect   = "Allow",
@@ -142,6 +144,8 @@ locals {
         MAX_SEARCH_RESULTS                  = var.max_search_results
         BEDROCK_GUARDRAIL_ID                = module.bedrock_guardrails.guardrail_id
         BEDROCK_GUARDRAIL_VERSION           = module.bedrock_guardrails.guardrail_version
+        EMBEDDING_MODEL                     = var.embedding_model
+        MIN_RELEVANCE_SCORE                 = var.min_relevance_score
       }
       # Policy unique to this Lambda
       iam_policy_statements = [
@@ -155,7 +159,7 @@ locals {
           Action = ["bedrock:InvokeModel"]
           Resource = concat(
             # Titan Embeddings is kept explicit — it serves a different role (embeddings, not LLM)
-            ["arn:aws:bedrock:${var.region}::foundation-model/amazon.titan-embed-text-v1", var.bedrock_model_inference_profile_arn],
+            ["arn:aws:bedrock:${var.region}::foundation-model/${var.embedding_model}", var.bedrock_model_inference_profile_arn],
             var.bedrock_foundation_model_arns
           )
         },

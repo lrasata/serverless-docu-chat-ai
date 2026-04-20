@@ -1,15 +1,23 @@
 import json
 import os
-import io
 import time
 import random
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 import psycopg2
-import pdfplumber
-from docx import Document
 from pgvector.psycopg2 import register_vector
+
+from extraction import extract_text
+from chunking import chunk_document
+
+# ---------- Environment variables ----------
+FUNCTION_NAME = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "s3-ingestion")
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "amazon.titan-embed-image-v1")
+EMBEDDING_DIMENSIONS = int(os.environ.get("EMBEDDING_DIMENSIONS", "1024"))
+REGION = os.environ["REGION"]
+RDS_SECRET_ARN = os.environ["RDS_SECRET_ARN"]
+DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
 
 # ---------- AWS clients ----------
 s3 = boto3.client("s3")
@@ -18,11 +26,7 @@ secretsmanager = boto3.client("secretsmanager")
 dynamodb = boto3.client("dynamodb")
 cloudwatch = boto3.client("cloudwatch", config=Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 0}))
 
-FUNCTION_NAME = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "s3-ingestion")
-
-# ----------- CONSTANTS -----------------
-QUESTION_MODEL_EMBEDDING="amazon.titan-embed-text-v1"
-
+# ---------- Monitoring ----------
 def _emit_bedrock_metric(metric_name, value_ms):
     try:
         cloudwatch.put_metric_data(
@@ -37,11 +41,7 @@ def _emit_bedrock_metric(metric_name, value_ms):
     except Exception as e:
         print(f"Failed to emit metric {metric_name}: {e}")
 
-REGION = os.environ["REGION"]
-RDS_SECRET_ARN = os.environ["RDS_SECRET_ARN"]
-DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
-
-# ---------- Connection cache (survives warm invocations) ----------
+# ---------- Database ----------
 _db_conn = None
 
 def get_db_credentials():
@@ -75,15 +75,19 @@ def get_db_connection():
     return _db_conn
 
 def ensure_table():
+    # EMBEDDING_DIMENSIONS must match the output size of EMBEDDING_MODEL.
+    # Changing this after the table is created requires dropping and recreating
+    # the table and re-ingesting all documents — vector(N) cannot be altered in place.
     conn = get_db_connection()
     with conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(f"""
             CREATE TABLE IF NOT EXISTS document_chunks (
                 id          BIGSERIAL PRIMARY KEY,
                 document_id TEXT         NOT NULL,
                 chunk_id    TEXT         NOT NULL UNIQUE,
                 content     TEXT         NOT NULL,
-                embedding   vector(1536) NOT NULL
+                embedding   vector({EMBEDDING_DIMENSIONS}) NOT NULL,
+                fts         tsvector     GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
             );
         """)
         cur.execute("""
@@ -96,45 +100,27 @@ def ensure_table():
             CREATE INDEX IF NOT EXISTS document_chunks_document_id_idx
             ON document_chunks (document_id);
         """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS document_chunks_fts_idx
+            ON document_chunks USING GIN (fts);
+        """)
     conn.commit()
     print("Table and indexes ensured")
 
-# ---------- Text extraction helpers ----------
-def extract_pdf(file_bytes):
-    text = ""
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    return text
+def index_chunk(conn, document_id, chunk_id, chunk_text, embedding):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO document_chunks (document_id, chunk_id, content, embedding)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (chunk_id) DO UPDATE
+              SET content = EXCLUDED.content,
+                  embedding = EXCLUDED.embedding;
+            """,
+            (document_id, chunk_id, chunk_text, embedding)
+        )
 
-def extract_docx(file_bytes):
-    doc = Document(io.BytesIO(file_bytes))
-    return "\n".join(p.text for p in doc.paragraphs)
-
-def extract_text(file_bytes, file_key):
-    if file_key.endswith(".pdf"):
-        return extract_pdf(file_bytes)
-    elif file_key.endswith(".txt"):
-        return file_bytes.decode("utf-8")
-    elif file_key.endswith(".docx"):
-        return extract_docx(file_bytes)
-    else:
-        raise ValueError("Unsupported file type")
-
-def chunk_text(text, chunk_size=500, overlap=50):
-    words = text.split()
-    chunks = []
-    start = 0
-    while start < len(words):
-        end = start + chunk_size
-        chunk = " ".join(words[start:end])
-        if len(chunk.strip()) > 200:
-            chunks.append(chunk)
-        start = end - overlap
-    return chunks
-
+# ---------- Bedrock ----------
 _BEDROCK_RETRYABLE = {"ThrottlingException", "ServiceUnavailableException", "ModelTimeoutException"}
 
 def create_embedding(text, max_retries=3):
@@ -142,7 +128,7 @@ def create_embedding(text, max_retries=3):
         try:
             t0 = time.monotonic()
             response = bedrock.invoke_model(
-                modelId=QUESTION_MODEL_EMBEDDING,
+                modelId=EMBEDDING_MODEL,
                 contentType="application/json",
                 accept="application/json",
                 body=json.dumps({"inputText": text})
@@ -159,20 +145,6 @@ def create_embedding(text, max_retries=3):
                 raise
     return None
 
-
-def index_chunk(conn, document_id, chunk_id, chunk_text_content, embedding):
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO document_chunks (document_id, chunk_id, content, embedding)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (chunk_id) DO UPDATE
-              SET content = EXCLUDED.content,
-                  embedding = EXCLUDED.embedding;
-            """,
-            (document_id, chunk_id, chunk_text_content, embedding)
-        )
-
 # ---------- Cold-start initialization ----------
 ensure_table()
 
@@ -188,7 +160,6 @@ def _mark_document_failed(message, key):
         ExpressionAttributeNames={"#s": "status"},
         ExpressionAttributeValues={":status": {"S": "failed"}}
     )
-
 
 def handler(event, context):
     sns_record = event["Records"][0]["Sns"]
@@ -218,7 +189,6 @@ def handler(event, context):
         "body": json.dumps({"document_id": key})
     }
 
-
 def _process(message, bucket, key):
     response = s3.get_object(Bucket=bucket, Key=key)
     file_bytes = response["Body"].read()
@@ -227,7 +197,7 @@ def _process(message, bucket, key):
     if not text or len(text.strip()) < 100:
         raise ValueError("Extracted text is empty or too short")
 
-    chunks = chunk_text(text)
+    chunks = chunk_document(text, key)
     print(f"Created {len(chunks)} chunks")
 
     document_id = key
@@ -236,9 +206,7 @@ def _process(message, bucket, key):
     try:
         for idx, chunk in enumerate(chunks):
             embedding = create_embedding(chunk)
-            chunk_id = f"{document_id}-{idx}"
-            index_chunk(conn, document_id, chunk_id, chunk, embedding)
-
+            index_chunk(conn, document_id, f"{document_id}-{idx}", chunk, embedding)
         conn.commit()
     except Exception:
         global _db_conn
@@ -248,6 +216,7 @@ def _process(message, bucket, key):
             pass
         _db_conn = None
         raise
+
     print("Document ingestion completed successfully")
 
     dynamodb.update_item(

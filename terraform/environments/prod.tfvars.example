@@ -28,7 +28,7 @@ notification_email                = "ops-team@your-domain.com"
 bucket_av_sns_findings_topic_name = "prod-bucket-av-findings"
 
 # Bedrock Configuration
-bedrock_model_inference_profile_arn   = "anthropic.claude-sonnet-4-20250514-v1:0"
+bedrock_model_inference_profile_arn   = "arn:aws:bedrock:eu-central-1:xxxx:inference-profile/eu.anthropic.claude-sonnet-4-6"
 max_search_results = 5
 
 # Security

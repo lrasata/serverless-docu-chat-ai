@@ -1,4 +1,4 @@
-import {API_BACKEND_URL} from "../../../shared/constants/constants.ts";
+import { API_BACKEND_URL } from "../../../shared/constants/constants.ts";
 
 export const getPresignedUrl = async (
   id: number | string,

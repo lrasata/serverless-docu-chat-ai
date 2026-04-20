@@ -13,6 +13,7 @@ import type {
 import { Box, LinearProgress, IconButton, Chip } from "@mui/material";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import DescriptionIcon from "@mui/icons-material/Description";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -37,11 +38,17 @@ interface FileManagementContainerProps {
   onSelectionChange?: (selectedIds: string[], pendingIds: string[]) => void;
 }
 
-const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerProps) => {
+const FileManagementContainer = ({
+  onSelectionChange,
+}: FileManagementContainerProps) => {
   const [dragging, setDragging] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
-  const [awaitingFileKeys, setAwaitingFileKeys] = useState<Set<string>>(new Set());
-  const [timedOutFileKeys, setTimedOutFileKeys] = useState<Set<string>>(new Set());
+  const [awaitingFileKeys, setAwaitingFileKeys] = useState<Set<string>>(
+    new Set(),
+  );
+  const [timedOutFileKeys, setTimedOutFileKeys] = useState<Set<string>>(
+    new Set(),
+  );
   const pollStartedAtRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dispatch = useDispatch<AppDispatch>();
@@ -49,7 +56,13 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
   const auth = useAuth();
 
   const loadFiles = useCallback(() => {
-    dispatch(fetchFiles({ accessToken: auth.user?.access_token ?? "", user_sub: auth.user?.profile.sub ?? "", resource: "users" }));
+    dispatch(
+      fetchFiles({
+        accessToken: auth.user?.access_token ?? "",
+        user_sub: auth.user?.profile.sub ?? "",
+        resource: "users",
+      }),
+    );
   }, [auth.user?.access_token, auth.user?.profile.sub]);
 
   useEffect(() => {
@@ -90,8 +103,9 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
 
     const interval = setInterval(() => {
       if (Date.now() - pollStartedAtRef.current! >= 15 * 60 * 1000) {
-        setTimedOutFileKeys((prev) =>
-          new Set([...prev, ...processingFiles.map((f) => f.file_key)]),
+        setTimedOutFileKeys(
+          (prev) =>
+            new Set([...prev, ...processingFiles.map((f) => f.file_key)]),
         );
         pollStartedAtRef.current = null;
         return;
@@ -109,7 +123,11 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
     if (!user_sub) return;
 
     try {
-      const presignedUrlData = await getPresignedUrl(user_sub, file, auth.user?.access_token ?? "");
+      const presignedUrlData = await getPresignedUrl(
+        user_sub,
+        file,
+        auth.user?.access_token ?? "",
+      );
 
       if (!presignedUrlData?.upload_url || !presignedUrlData?.file_key) return;
 
@@ -166,12 +184,14 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
     }
   };
 
+  const ACCEPTED_EXTENSIONS = new Set([".pdf", ".txt", ".md", ".docx"]);
+  const isAccepted = (f: File) =>
+    ACCEPTED_EXTENSIONS.has("." + f.name.split(".").pop()?.toLowerCase());
+
   const handleFiles = useCallback(
     (incoming: FileList | null) => {
       if (!incoming) return;
-      const pdfs = Array.from(incoming).filter(
-        (f) => f.type === "application/pdf",
-      );
+      const pdfs = Array.from(incoming).filter(isAccepted);
 
       const newEntries: UploadingFile[] = pdfs.map((file) => ({
         id: crypto.randomUUID(),
@@ -201,7 +221,7 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
   return (
     <>
       <Typography variant="h3" mb={2}>
-        Upload your PDF documents
+        Upload your documents
       </Typography>
 
       {/* Drop Zone */}
@@ -242,10 +262,12 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
           variant="body2"
           color={dragging ? "primary" : "text.secondary"}
         >
-          {dragging ? "Release to upload" : "Drag PDFs here or click to browse"}
+          {dragging
+            ? "Release to upload"
+            : "Drag files here or click to browse"}
         </Typography>
         <Chip
-          label=".pdf only"
+          label=".pdf .txt .md .docx"
           size="small"
           variant="outlined"
           sx={{ fontSize: "0.65rem", height: 20 }}
@@ -253,7 +275,7 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf"
+          accept=".pdf,.txt,.md,.docx"
           multiple
           style={{ display: "none" }}
           onChange={(e) => handleFiles(e.target.files)}
@@ -282,9 +304,15 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
               }}
             >
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <PictureAsPdfIcon
-                  sx={{ fontSize: 18, color: "text.secondary" }}
-                />
+                {f.file.name.endsWith(".pdf") ? (
+                  <PictureAsPdfIcon
+                    sx={{ fontSize: 18, color: "text.secondary" }}
+                  />
+                ) : (
+                  <DescriptionIcon
+                    sx={{ fontSize: 18, color: "text.secondary" }}
+                  />
+                )}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography variant="body2" noWrap>
                     {f.file.name}
@@ -340,7 +368,9 @@ const FileManagementContainer = ({ onSelectionChange }: FileManagementContainerP
           </Typography>
           <FileCardContainer
             files={files.map((f) =>
-              timedOutFileKeys.has(f.file_key) ? { ...f, status: "failed" as const } : f
+              timedOutFileKeys.has(f.file_key)
+                ? { ...f, status: "failed" as const }
+                : f,
             )}
             onSelectionChange={onSelectionChange}
           />

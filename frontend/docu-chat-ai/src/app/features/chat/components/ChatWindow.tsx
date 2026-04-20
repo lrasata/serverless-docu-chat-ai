@@ -1,4 +1,6 @@
 import React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Box,
   Typography,
@@ -34,13 +36,38 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages }) => {
                   : "grey.100",
             }}
           >
-            <Typography
-              variant="body1"
-              color={msg.sender === "user" ? "white" : "textPrimary"}
-              sx={{ whiteSpace: "pre-wrap" }}
-            >
-              {msg.text}
-            </Typography>
+            {msg.sender === "user" ? (
+              <Typography
+                variant="body1"
+                color="white"
+                sx={{ whiteSpace: "pre-wrap" }}
+              >
+                {msg.text}
+              </Typography>
+            ) : (
+              <Typography
+                variant="body1"
+                component="div"
+                sx={{
+                  "& p": { mt: 0, mb: 1 },
+                  "& p:last-child": { mb: 0 },
+                  "& ul, & ol": { pl: 2, mb: 1 },
+                  "& li": { mb: 0.5 },
+                  "& code": { bgcolor: "grey.200", px: 0.5, borderRadius: 0.5 },
+                  "& pre": {
+                    bgcolor: "grey.200",
+                    p: 1,
+                    borderRadius: 1,
+                    overflowX: "auto",
+                  },
+                  "& table": { borderCollapse: "collapse", width: "100%", mb: 1 },
+                  "& th, & td": { border: "1px solid", borderColor: "divider", px: 1.5, py: 0.75, textAlign: "left" },
+                  "& th": { bgcolor: "grey.200", fontWeight: "bold" },
+                }}
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+              </Typography>
+            )}
 
             {msg.sources && msg.sources.length > 0 && (
               <Box sx={{ mt: 2 }}>
@@ -99,7 +126,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages }) => {
                           color="text.disabled"
                           sx={{ mt: 0.5, display: "block" }}
                         >
-                          Document ID: {source.documentId.substring(0, 8)}...
+                          Document ID: ...
+                          {source.documentId
+                            .split("/")
+                            .pop()
+                            ?.replace(/^[^_]+_/, "")}
                         </Typography>
                       </Box>
                     ))}

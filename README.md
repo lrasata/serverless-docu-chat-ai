@@ -1,342 +1,281 @@
-# AI Powered Document Chat App
+# AI-Powered Document Chat
+![Staging Apply](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-backend-to-staging.yml/badge.svg)
+![Staging Apply](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-frontend-to-staging.yml/badge.svg)
 
-![Staging Backend - Deployment pipeline](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-backend-to-staging.yml/badge.svg)
-![Staging Frontend - Deployment pipeline](https://github.com/lrasata/docu-chat-ai/actions/workflows/deploy-frontend-to-staging.yml/badge.svg)
+A cloud-native application that lets users chat with their uploaded documents using AI.
+Built on AWS Bedrock, PostgreSQL + pgvector, and React, using **Agentic RAG** to answer questions grounded in documents and with live tool calls when document context alone isn't enough.
 
-A cloud-native application that allows users to chat with their PDF documents using AI. Built with AWS Bedrock, RDS PostgreSQL + pgvector, and React. Uses **Retrieval-Augmented Generation (RAG)** to answer questions grounded in the user's own documents.
+> ⚠️ Demo purposes only.
+
+---
 
 ## Table of Contents
 
-- [What is RAG?](#what-is-rag)
-- [Features](#features)
-- [Architecture](#architecture)
-- [How It Works](#how-it-works)
-- [Repository Structure](#repository-structure)
-- [API Endpoints](#api-endpoints)
-- [Security](#security)
-- [Why these choices?](#why-these-choices)
-- [Chunking and Search Considerations](#chunking-and-search-considerations)
-- [Monitoring](#monitoring)
-- [Production Readiness TODOs](#production-readiness-todos)
-- [Scalability Limits](#scalability-limits)
+1. [What Was Already Built](#what-was-already-built)
+2. [What I Built Additionally](#what-i-built-additionally)
+3. [All Features](#all-features)
+4. [Architecture & Design Decisions](#architecture--design-decisions)
+5. [Ingestion](#ingestion)
+6. [Query & Answer](#query--answer)
+7. [What I'd Change With More Time](#what-id-change-with-more-time)
+8. [Project Structure](#project-structure)
+9. [Further Reading](#further-reading)
 
-## What is RAG?
+---
 
-**Retrieval-Augmented Generation (RAG)** is a technique that combines a vector search engine with a large language model (LLM). Instead of relying solely on the LLM's pre-trained knowledge, RAG first retrieves relevant passages from a document store and feeds them as context to the LLM before generating an answer.
+## Application Interface
 
-**Pros:**
-- Answers are grounded in your actual documents, reducing hallucination
-- Works with private or domain-specific content the LLM was never trained on
-- Easy to update the knowledge base without retraining the model
-- Source citations are traceable
+![Screenshot of the UI](docs/frontend-UI-3.png)
 
-**Cons:**
-- Answer quality depends heavily on chunking and retrieval quality
-- Adds latency (embedding + vector search before LLM call)
-- Irrelevant chunks can mislead the LLM if retrieval is poor
-- Requires maintaining a vector database alongside the document store
+---
 
-### How RAG works in this project
+## What Was Already Built
 
-1. **Ingestion** 
+Prior to the technical assignment, I have already built the following:
 
-   When a document is uploaded to S3, the `s3-ingestion` Lambda extracts the text, splits it into overlapping chunks (~500 words), and calls Amazon Titan Embeddings to convert each chunk into a 1536-dimensional vector. The vectors are stored alongside the text in RDS PostgreSQL using the `pgvector` extension.
+- **React + TypeScript** frontend with AWS Cognito (Google OAuth) authentication
+- File upload flow via a pre-built Terraform module: [infra-file-uploader](https://github.com/lrasata/infra-file-uploader)
+- Document ingestion Lambda (**Python**): extracts text, creates fixed-size chunks, stores vectors in PostgreSQL (no multimodal support)
+- Query Lambda (**Python**): embeds the question, retrieves similar chunks with cosine search, passes them to an LLM
 
-2. **Query**
+## What I Built Additionally 
 
-   When a user asks a question, the `query-document` Lambda embeds the question with the same Titan model, then runs a cosine similarity search (`<=>` operator) against the `document_chunks` table in PostgreSQL to find the most relevant chunks. Results can be scoped to a specific document or to all documents belonging to the user.
+- **Multimodal embeddings:** switched to Amazon Titan Multimodal Embeddings
+- **Chunking strategy per format:** PDF, Markdown, DOCX, and plain text each use a different chunking approach suited to their structure
+- **Hybrid search:** combined semantic (pgvector cosine) and lexical (BM25 / PostgreSQL FTS) retrieval via Reciprocal Rank Fusion
+- **Agentic tool use:** the LLM can call tools mid-conversation to fetch live data (current date, entitlements, payroll) and combine it with document context
+- **Conversation memory:** the last 10 messages are sent with every request so the agent can refer back to earlier turns
 
-3. **Generation**
+---
 
-   The top matching chunks are assembled into a context prompt and sent to Anthropic Claude 4 on AWS Bedrock. Claude answers the question using only the retrieved context, then the response is returned to the frontend with source citations.
+## All Features
 
-## Features
+- **Document Upload:** `.pdf`, `.txt`, `.md`, `.docx` supported
+- **Hybrid Search:** semantic and lexical (BM25) search merged via Reciprocal Rank Fusion
+- **Agentic Tool Use:** LLM calls tools mid-conversation for live data ⚠️ *currently mocked*
+- **Conversation Memory:** 5-turn rolling window, client-side
+- **Any Bedrock LLM:** switching models is a single Terraform variable change. This project was tested with Claude Sonnet 4.6
+- **Secure Authentication:** AWS Cognito with Google OAuth
+- **Serverless:** Lambda + API Gateway, auto-scaling, pay-per-use
+- **Infrastructure as Code:** full Terraform deployment across four independent layers: secrets, cognito, backend, frontend
 
-- **Document Upload**: Tested with PDFs containing text. ⚠️ Not multimodal yet (images, tables, etc.)
-- **AI-Powered Chat**: Ask questions about your documents using natural language
-- **Semantic Search**: Vector similarity search with Amazon Titan embeddings (for text) and pgvector
-- **LLM Integration**: Use any LLM available on AWS Bedrock. This project was tested with Anthropic Claude 4 Sonnet
-- **Secure Authentication**: AWS Cognito with Google OAuth
-- **Real-time Interface**: Modern React UI with Material-UI
-- **Serverless Architecture**: Auto-scaling, pay-per-use infrastructure
-- **Infrastructure as Code**: Complete Terraform deployment
+---
 
-## Architecture
+## Architecture & Design Decisions
 
-<img src="docs/architecture.png" alt="infrastructure">
+### Diagram
+<img src="docs/architecture.png" alt="Architecture Diagram" />
 
-**Frontend:**
-- React (Vite) app with TypeScript
-- Material-UI components
-- Hosted on S3 + CloudFront
+### Assumptions
 
-<img src="docs/frontend-UI-1.png" alt="frontend-ui-1" height="170px"> <img src="docs/frontend-UI-2.png" alt="frontend-ui-2" height="170px">
+- One embedding model is set at deployment time and never changed mid-deployment (changing it requires full re-ingestion).
+- Tool data is mocked. In production these would call real APIs.
+- The `min_relevance_score` threshold (default `0.4`) is tuned for the Titan embedding model. Multimodal models produce lower similarity scores and may need a lower threshold.
+- Lexical search (BM25) results bypass the `min_relevance_score` filter. An exact keyword match is always sent to the LLM regardless of its semantic score. A low embedding similarity on an exact match means the model didn't find it conceptually close, not that it's irrelevant.
+- Conversation history is capped at 10 messages to keep token usage predictable.
+- Documents are assumed to be in English; multi-language support requires parameterizing the PostgreSQL FTS dictionary.
 
-**Backend:**
-- **API Gateway**: RESTful endpoints with JWT authentication
-- **Lambda Functions**:
-  - `upload` - Generate presigned S3 URLs
-  - `get-files` - Query DynamoDB for user documents
-  - `query-document` - RAG chat handler with Bedrock integration
-  - `s3-ingestion` - Extract text, create embeddings, index to pgvector
-    
-    Splits the document into ~500-word overlapping chunks, converts each chunk into a 1536-dimension vector using Amazon Titan Embeddings, then stores both the raw text and its vector in PostgreSQL (pgvector).
+### Why Agentic RAG❓
 
-    Each row in `document_chunks` is:
+The project has two requirements:
+1. Answer questions from static documents
+2. Return live, user-specific data on demand (e.g. *"How many vacation days do I have left?"*)
 
-    | column        | what it stores                                |
-    |---------------|-----------------------------------------------|
-    | `document_id` | the S3 key of the source file                 |
-    | `chunk_id`    | `{document_id}-{chunk_index}`                 |
-    | `content`     | the raw text of the chunk (~500 words)        |
-    | `embedding`   | the 1536 floats vector representing that text |
+RAG alone covers requirement 1 but not 2 because documents can't answer questions about live data.
+Agentic RAG adds tool-calling so the LLM can fetch live data mid-conversation and combine it with document context in a single answer.
 
-    ```sql
-    INSERT INTO document_chunks (document_id, chunk_id, content, embedding)
-    VALUES (%s, %s, %s, %s)
-    ```
+### Where to store vectors❓
 
-    So one PDF with 10 chunks = 10 rows, each with its own text + its own vector. The `content` is what gets sent to Claude as context, the `embedding` is only used for the similarity search to decide which chunks to retrieve.
-- **Storage**:
-  - S3 for document storage
-  - DynamoDB for file metadata
-  - RDS PostgreSQL + pgvector for vector search
-- **Networking**:
-  - Lambda and RDS run inside a private VPC
-  - VPC Interface Endpoints for Bedrock, Secrets Manager, SNS (no NAT Gateway)
-  - VPC Gateway Endpoints for S3 and DynamoDB (free)
-- **AI/ML**:
-  - Amazon Titan Embeddings (`amazon.titan-embed-text-v1`) for vectorization — hardcoded, not swappable at runtime. The embedding model must stay consistent for the lifetime of the vector store: every chunk is embedded at ingestion time and stored as a 1536-dimensional vector in pgvector. If you changed the model, its vector space would be incompatible with existing stored vectors and all documents would need to be re-ingested from scratch. Titan was chosen because it is natively available in Bedrock (no subscription required), requires no NAT Gateway (accessible via VPC endpoint), and its 1536-d output is a well-supported size for pgvector similarity search.
-  - Any Bedrock-supported LLM for chat responses via the Bedrock Converse API. Converse provides a unified interface across all models — switching LLMs is a Terraform variable change, not a code change. Two variables control this:
+A vector store saves text chunks as numerical arrays (embeddings) so they can be searched by meaning at query time. Without it, there is nowhere to index the document chunks after ingestion.
 
-    | Variable                              | Purpose    | Description                                                                                                                                                                                                                                                               |
-    |---------------------------------------|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-    | `bedrock_model_inference_profile_arn` | Runtime    | ARN of the Bedrock inference profile the Lambda calls. A cross-region profile routes across regions for availability. Changing this switches the active LLM.                                                                                                              |
-    | `bedrock_foundation_model_arns`       | IAM        | Foundation model ARNs granted `bedrock:InvokeModel`. Needed because cross-region inference profiles route internally to underlying models in specific regions — IAM must permit those calls. Defaults to `arn:aws:bedrock:*::foundation-model/*` (any model, any region). |
-    | `llm_temperature`                     | Generation | Response randomness (`0.0` = deterministic, `1.0` = creative). Default: `0.7`.                                                                                                                                                                                            |
-    | `llm_max_tokens`                      | Generation | Maximum tokens in the response — caps answer length and Bedrock cost. Default: `2000`.                                                                                                                                                                                    |
-  - Amazon Bedrock Guardrails for content moderation (applied to every `query-document` invocation):
+Several options exist:
 
-    | Feature                  | Configuration                                       |
-    |--------------------------|-----------------------------------------------------|
-    | Violence                 | Blocked at HIGH threshold (input + output)          |
-    | Sexual content           | Blocked at HIGH threshold (input + output)          |
-    | Hate speech              | Blocked at HIGH threshold (input + output)          |
-    | Insults                  | Blocked at MEDIUM threshold (input + output)        |
-    | Prompt attack            | Blocked at HIGH threshold (input only)              |
-    | Profanity                | AWS managed word list — blocked                     |
-    | PII (name, email, phone) | Anonymised on input + output via `ANONYMIZE` action |
+| Option                                | Cost            | Notes                                                                   |
+|---------------------------------------|-----------------|-------------------------------------------------------------------------|
+| Pinecone / Weaviate / Qdrant          | Pay-per-use     | Data leaves AWS                                                         |
+| OpenSearch Serverless                 | ~$350/month min | Expensive at low traffic                                                |
+| Amazon S3 Vectors (GA since Dec 2025) | Very cheap      | Query costs scale with index size. No built-in lexical/BM25 capability  |
+| **PostgreSQL + pgvector** ✅           | ~$13/month      | Good enough for this use case                                           |
 
-    Example for PII: User types → Frontend displays it as-is → API Gateway → Lambda → Bedrock (guardrail anonymizes here) → Claude sees `[NAME]`, `[EMAIL]` → Response has no PII
+PostgreSQL + pgvector + FTS (Full-Text Search) stays inside the VPC, handles both vector and lexical search in one place, and has low costs for demo scale.
+The trade-off is it won't scale horizontally. At high volume, migrate to Aurora PostgreSQL or a dedicated vector store.
 
-**Authentication:**
-- AWS Cognito User Pool with Google IdP
+### Why Hybrid Search❓
 
-## How It Works
-
-1. **User uploads a document** → Stored in S3
-2. **S3 event triggers ingestion Lambda** → Extracts text, chunks it
-3. **Text chunks embedded** → Using Amazon Titan Embeddings
-4. **Chunks indexed** → Stored in RDS PostgreSQL (`document_chunks` table) with pgvector
-5. **User asks a question** → Question embedded with Titan
-6. **Vector search** → pgvector cosine similarity finds the most relevant chunks
-7. **LLM generates answer** → Claude 4 uses retrieved context to respond
-8. **User receives answer** → With source citations and relevance scores
-
-## Repository Structure
+Hybrid search runs in the `query-document` Lambda, between embedding the question and sending context to the LLM:
 
 ```
-.
-├── frontend/
-│   └── docu-chat-ai/          # React TypeScript app
-├── terraform/
-│   ├── environments/          # Variable files
-│   │   ├── staging.tfvars.example
-│   │   └── prod.tfvars.example
-│   └── layers/
-│       ├── backend/           # Lambda, API Gateway, RDS pgvector
-│       │   ├── main.tf
-│       │   ├── locals.tf      # Lambda configurations
-│       │   ├── modules/
-│       │   │   ├── api_gateway/       
-│       │   │   ├── lambda_function/   
-│       │   │   ├── route53/
-│       │   │   └── rds/       # VPC, RDS PostgreSQL, VPC endpoints
-│       │   └── src/
-│       │       └── lambda_functions/
-│       │           ├── query_document/  # RAG chat handler
-│       │           └── s3_ingestion/    # Document processing + embedding
-│       ├── cognito/           # Authentication
-│       ├── secrets/           # Secrets Manager
-│       └── frontend/          # S3 + CloudFront
-└── DEPLOYMENT.md              # Deployment and configuration guide
+User question
+    → embed (Titan)
+    → hybrid search (semantic + lexical, merged via RRF)
+    → top chunks + conversation history + tools
+    → LLM (Claude)
+    → answer
 ```
 
-## API Endpoints
+Neither retriever alone is enough:
 
-- `POST /api/chat` - Send a question, get AI-generated answer (optionally scoped to a document)
-- `GET /api/files` - List user's uploaded documents
-- `GET /api/upload` - Get a presigned S3 URL for uploading
+| Retriever                           | Strength                           | Weakness                                           |
+|-------------------------------------|------------------------------------|----------------------------------------------------|
+| **Semantic** (pgvector cosine)      | Conceptual questions, paraphrasing | Exact codes, IDs, proper nouns                     |
+| **Lexical** (BM25 / PostgreSQL FTS) | Exact keyword matches              | Synonyms — `"holiday"` won't find `"annual leave"` |
 
-All endpoints require JWT authentication via Cognito.
+Both run in parallel on every query. Results are merged via **Reciprocal Rank Fusion (RRF)**, which re-ranks by position only (no raw score tuning required).
 
-## Security
+### Bedrock Configuration ⚙️
 
-- JWT authentication via Cognito
-- Encrypted at rest (S3, DynamoDB, RDS storage encryption)
-- IAM least privilege for Lambda roles
-- RDS in private VPC subnets — not publicly accessible
-- RDS credentials stored in Secrets Manager, fetched at runtime
-- Presigned URLs with expiration
-- No hardcoded credentials
+| Feature                             | Why                                                                                                                                     |
+|-------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| **Converse API**                    | Unified interface across all models. Switching from Claude to Llama or Mistral is a single Terraform variable change                    |
+| **Cross-region inference profiles** | Routes requests across regions automatically. Avoids throttling failures, especially outside `us-east-1` where default quotas are lower |
+| **Guardrails**                      | Blocks harmful content and prompt injection before the model sees the request. No custom moderation code required                       |
 
-## Why these choices?
+---
 
-### Why RAG instead of fine-tuning?
+## Ingestion
 
-Fine-tuning a model on your documents is expensive, slow, and requires retraining every time the knowledge base changes. 
+### How it works
 
-RAG lets you update the document store at any time without touching the model. It also gives you traceable citations. 
-You always know which passage the answer came from. For a document chat use case where content changes over-time and accuracy matters, RAG is the right fit.
+1. The user selects a file. The frontend requests a pre-signed S3 URL from the backend and uploads the file directly to S3.
+2. S3 triggers the `process-uploaded-file` Lambda, which records the upload in DynamoDB and publishes a message to SNS.
+3. SNS triggers the `s3-ingestion` Lambda, which extracts text from the file, splits it into chunks, and converts each chunk into a vector using a Bedrock embedding model.
+4. Each chunk and its vector are stored as a row in PostgreSQL (pgvector).
 
-### Why RDS PostgreSQL + pgvector instead of OpenSearch Serverless?
+<img src="docs/upload-ingestion.png" alt="Upload Flow" />
 
-OpenSearch Serverless was the original choice for vector search. However, it has a minimum cost of ~$700/month regardless of 
-usage — two always-on Indexing Compute Units and two Search Compute Units are required even for a single index with 
-zero traffic. That made it unaffordable and overkill for POC.
+### Supported formats
 
-RDS PostgreSQL with the `pgvector` extension provides the same cosine similarity search capability at a fraction of the 
-cost (~$13/month for a `db.t4g.micro` instance). The trade-off is that it's not serverless — the instance runs 24/7 — but 
-for this use case the cost difference is so significant (~50x cheaper) that it is clearly the right choice. 
-For production with high query volume, you could scale up the RDS instance or migrate to Aurora PostgreSQL which also 
-supports pgvector.
+`.pdf`, `.txt`, `.md`, `.docx`
 
-## Chunking and Search Considerations
+### Chunking strategy
 
-- **Chunking strategy:**  
-  Documents are split into ~500-word overlapping chunks for embeddings. The **choice of chunking affects retrieval quality**:
-    - If your documents have unpredictable formatting or structure, **chunking by character length** is often more reliable than word-based heuristics.
-    - Poor chunking can lead to irrelevant or truncated context being sent to the LLM, reducing answer quality.
+| Format  | Strategy                    | Chunk size                                                                     | Rationale                                                             |
+|---------|-----------------------------|--------------------------------------------------------------------------------|-----------------------------------------------------------------------|
+| `.txt`  | Fixed-size with overlap     | ~200 words, 20% overlap                                                        | No structure to exploit; overlap prevents context loss at boundaries  |
+| `.md`   | Header-based                | One `#`–`####` section per chunk; fallback to 200 words if section > 800 words | Each heading section is a self-contained unit                         |
+| `.pdf`  | Section-aware with fallback | One detected section per chunk; fallback to 300 words / 60-word overlap        | Preserves clause integrity; splitting mid-rule produces wrong answers |
+| `.docx` | Fixed-size with overlap     | ~500 words, 50-word overlap                                                    | Fallback for richly formatted documents                               |
 
-- **Search type:**
-    - Currently, only **semantic search** via vector similarity is used.
-    - Adding a **lexical search (e.g., BM25)** could improve retrieval, especially for exact matches or technical terms.
+### Trade-offs and failure modes
 
-## Monitoring
+- **PDF silent fallback:** `pdfplumber` loses visual formatting. Section detection will silently fall back for scanned PDFs, multi-column layouts, and image-based headings. Logged to CloudWatch so the fallback rate is measurable.
+- **Embedding model lock-in❗:** changing the embedding model invalidates all stored vectors; full re-ingestion required.
 
-### API Gateway Metrics
+---
 
-| Metric                                | Unit  | Description                                                             |
-|---------------------------------------|-------|-------------------------------------------------------------------------|
-| **Latency**                           | ms    | Identify slow API behavior (shown on dashboard)                         |
-| **Latency p99 (CloudWatch Alarm)**    | ms    | Triggers when p99 latency exceeds 10s (RAG queries can be slow)         |
-| **5XXError (CloudWatch Alarm)**       | Count | API internal server failures; triggers above 5 per minute               |
-| **4XXError (CloudWatch Alarm)**       | Count | Authentication or malformed requests; triggers above 5 per minute       |
+## Query & Answer
 
-### RDS Metrics
+### How it works
 
-| Metric                                     | Unit    | Description                                                                                                                  |
-|--------------------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------|
-| **DatabaseConnections (CloudWatch Alarm)** | Count   | Triggers when connection count exceeds ~80% of `max_connections` (threshold: 90 for `db.t4g.micro`, `max_connections` ≈ 112) |
-| **FreeStorageSpace (CloudWatch Alarm)**    | Bytes   | Triggers when free storage drops below 2 GB; vector embeddings grow with every ingested document                             |
-| **CPUUtilization (CloudWatch Alarm)**      | Percent | Triggers when CPU exceeds 80% over two consecutive 5-minute periods; pgvector ANN searches are CPU-bound                    |
+1. The user types a question. The frontend sends it with the recent conversation history.
+2. The question is embedded using the same model as the ingestion.
+3. The backend runs a **hybrid search**: semantic (vector similarity) + lexical (keyword match). Results are merged via RRF.
+4. The top chunks, conversation history, and tool definitions are sent to the LLM.
+5. The LLM either answers directly or calls a tool. If it calls a tool, the application runs it and sends the result back. This repeats until the LLM produces a final answer.
+6. The answer and source chunks are returned to the user.
 
-### Lambda Metrics
+<img src="docs/question-answer.png" alt="Question Answer Flow" />
 
-Alarms are created for each Lambda function (`s3_ingestion`, `query_document`).
+### The agentic loop
 
-| Metric                                            | Unit  | Function(s)                          | Description                                                     |
-|---------------------------------------------------|-------|--------------------------------------|-----------------------------------------------------------------|
-| **Errors (CloudWatch Alarm)**                     | Count | `s3_ingestion`, `query_document`     | Triggers when error count exceeds 5 per minute                  |
-| **EmbeddingLatency (CloudWatch Alarm)** ¹         | ms    | `s3_ingestion`, `query_document`     | Custom metric; triggers when p99 Bedrock embedding call > 3s    |
-| **LLMLatency (CloudWatch Alarm)** ¹               | ms    | `query_document`                     | Custom metric; triggers when p99 Bedrock converse call > 30s    |
+```
+User question
+      │
+      ▼
+Embed → hybrid search → filter by min_relevance_score
+      │
+      ▼
+converse(system prompt + document context + history + tool definitions)
+      │
+      ├── end_turn  →  return answer ✓
+      │
+      └── tool_use  →  execute tool(s)  →  append results  →  converse again
+                        (repeats up to MAX_TOOL_ITERATIONS = 10)
+```
 
-> ¹ Custom metrics emitted to the `DocuChatAI/Bedrock` namespace directly from Lambda code using `cloudwatch:PutMetricData`. Alarms use `treat_missing_data = notBreaching` so they stay green when the function is idle.
+**The LLM decides autonomously whether to call a tool or answer directly**. If the loop hits five iterations without `end_turn`, the Lambda returns a 500.
 
-### Ingestion Pipeline Metrics
+Converse arguments provided:
+```python
+    converse_kwargs = {
+        "modelId": model_id,
+        "system": [{"text": (
+            "You are a helpful AI assistant. Answer questions using the provided document context "
+            "and the tools available to you. Use tools whenever live data (dates, entitlements, "
+            "payroll) is needed to give a complete answer. "
+            "If the answer cannot be found in the context or via tools, say so."
+        )}],
+        "toolConfig": TOOL_CONFIG,
+        "inferenceConfig": {"maxTokens": MAX_TOKENS, "temperature": TEMPERATURE},
+    }
+```
 
-| Metric                                        | Unit  | Description                                                                 |
-|-----------------------------------------------|-------|-----------------------------------------------------------------------------|
-| **DLQ depth (CloudWatch Alarm)**              | Count | Triggers as soon as any message lands in the `s3-ingestion` DLQ, indicating a processing failure after all retries are exhausted |
+> The sentence `"Use tools whenever live data (dates, entitlements, payroll) is needed"` is the key instruction that tells the LLM when to call a tool rather than answering from document context alone.
 
+### Available tools
 
+| Tool                  | Returns                                                 | Called when                                        |
+|-----------------------|---------------------------------------------------------|----------------------------------------------------|
+| `get_current_date`    | `{ "today": "YYYY-MM-DD" }`                             | Questions involving dates, deadlines, or durations |
+| `get_my_entitlements` | Vacation days total / used / remaining, training budget | Questions about leave or benefit balances          |
+| `get_my_payroll_info` | Salary band, current salary, next review date           | Questions about compensation                       |
 
+> **Note:** All tools are currently mocked. Swapping in real data sources only requires changing the function body — the loop, dispatcher, and tool definitions are unchanged.
 
-## Production Readiness TODOs
+### Conversation memory
 
-The current setup works for staging and demos. Before going to production:
+**The frontend holds all messages in React state** and sends the last 10 (5 turns) with every request. The Lambda builds the Bedrock Converse `messages` array with history first, followed by the current question.
 
-**RAG Quality**
+This keeps the Lambda fully stateless (no session table, no cold-start lookup). History resets on page refresh, which is acceptable for short-lived document chat sessions.
 
-Two evaluation rounds completed. Full results, methodology, and observations: [rag_evaluation_results.md](rag_evaluation_results.md)
+---
 
-✅ Done
-- Built golden Q&A datasets for UDHR (41 questions) and RFC 7519 (57 questions across factual, conceptual, edge cases, and cross-claim reasoning types)
-- Implemented an automated LLM-as-judge evaluator deployed as a Lambda, storing results in S3 (judge: Claude Opus, answering model: Claude Sonnet)
-- RFC 7519 eval surfaced real retrieval weaknesses: avg correctness 4.49/5, with failures concentrated in introductory/definitional sections
+## What I'd Change With More Time
 
-❌ Not Done
-- Fix retrieval for short introductory chunks (reduce chunk size, increase overlap, or add BM25)
-- Measure baseline retrieval Hit Rate in isolation — current scoring evaluates end-to-end quality but doesn't verify whether the right chunks are retrieved before generation
-- Human review of outputs — current evaluation is fully automated via LLM judge, which is insufficient on its own
+**Retrieval quality**
 
-**Reliability & Error Handling**
-- ✅ Add a Dead Letter Queue (DLQ) to the SNS → S3 Ingestion Lambda subscription to catch failed ingestion events
-  - failure point 1: SNS can't invoke Lambda (throttle, unavailable) → SNS has no visibility into execution — needs redrive_policy on the subscription
-  - failure point 2: Lambda invoked but execution fails → Lambda on_failure destination handles the event
-- ✅ Add retry logic with exponential backoff on Bedrock API calls (throttling)
+Evaluation options, from simplest to most rigorous:
 
-  > ⚠️ **Warning — Bedrock throttling risk on large documents**
-  >
-  > Bedrock enforces two limits on the Titan Embed model:
-  > - **Tokens per minute (TPM)** — `s3_ingestion` calls `create_embedding` for every chunk in a tight loop. A large document (e.g. 100-page PDF) produces hundreds of chunks fired back-to-back, which can exhaust the TPM quota quickly.
-  > - **Requests per minute (RPM)** — a hard cap on invocation rate regardless of token size.
-  >
-  > Both are **soft limits** (raiseable via AWS Support) but default quotas are low, especially outside `us-*` regions.
-  >
-  > **How it is handled:** `create_embedding` retries up to 3 times on `ThrottlingException`, `ServiceUnavailableException`, and `ModelTimeoutException` using exponential backoff with jitter (`2^attempt + random(0–1s)`, capped at 30s). After all retries are exhausted the exception propagates, Lambda retries the full invocation, and the event is routed to the DLQ if it still fails.
+1. **LLM-as-judge:** ask a model to score answer relevance and faithfulness against retrieved chunks. A basic version of this was done in a previous iteration; at scale on real documents it requires more work (cost, prompt design, ground truth).
+2. **Hit Rate / Recall@k:** check whether the correct chunk appears in the top-k retrieved results, independently of answer quality. Useful for isolating retrieval failures from generation failures.
+3. **Human review:** a human labels whether the retrieved chunks and final answer are correct. The most reliable signal but the most expensive.
 
-- ✅ Handle partial ingestion failures — all chunks are written in a single transaction; a failed commit triggers rollback and connection invalidation, leaving no orphaned chunks
+**Robustness**
+- Replace mocked tools with real API integrations
+- Add per-document language detection to parameterize the FTS dictionary
+- Add a reranker (e.g., Cohere Rerank): retrieve more chunks than needed, then use a reranker to re-score them by reading the question and each chunk together, keeping only the most relevant ones before sending context to the LLM. Improves answer quality on vague or ambiguous questions.
 
-**Security**
-- ✅ Enable AWS WAF on CloudFront and API Gateway
-- [ ] Enforce MFA for Cognito users
-- [ ] Enable CloudTrail for full API audit logging
-- ✅ Rotate RDS credentials automatically via Secrets Manager rotation
+**Scale**
+- Replace synchronous Lambda ingestion with a queue-driven approach (SQS + Step Functions) for large documents and concurrent uploads
 
-**Content Filtering**
-- ✅ with Bedrock Guardrails for PII removal, text filtering, word filtering, profanities etc...
+---
 
-**Observability**
-- ✅ Set up CloudWatch Alarms for Lambda error rates, RDS connection count, and API Gateway 5xx
-- ✅ Create a CloudWatch Dashboard for the key metrics
+## Project Structure
 
-**Cost**
-- [ ] Use reserved instances for RDS in production (up to 40% savings)
-- [ ] Set S3 lifecycle rules to archive or delete old document uploads
+```
+docu-chat-ai/
+├── .github/workflows/               # CI/CD: deploy backend, frontend, destroy
+├── docs/                            # Architecture and UI screenshots
+├── frontend/docu-chat-ai/           # React + TypeScript app
+│   └── src/app/
+│       ├── features/                # chat, files, sign-in
+│       └── shared/                  # API clients, components, Redux store
+└── terraform/
+    ├── environments/                # staging.tfvars, prod.tfvars.example
+    └── layers/
+        ├── secrets/                 # Secrets Manager
+        ├── cognito/                 # Cognito User Pool + Google IdP
+        ├── backend/                 # Lambda, API Gateway, RDS, VPC
+        │   └── src/lambda_functions/
+        │       ├── s3_ingestion/    # Text extraction and chunking (chunking.py, extraction.py)
+        │       ├── query_document/  # Hybrid search + agentic loop (query_document.py, tools.py)
+        │       └── rag_evaluation/  # LLM-as-judge evaluator + golden datasets
+        └── frontend/                # S3, CloudFront, Route53
+```
 
-## Scalability Limits
+---
 
-The current Lambda-based RAG ingestion works well for demos and small-scale usage:
-- Fine for: PDFs ≤ ~20–30 pages, occasional uploads, best-effort processing with DLQ fallback
+## Further Reading
 
-**Limitations:**
-- Large documents (hundreds of pages) → Lambda S3 ingestion can timeout 
-- Many concurrent uploads can hit Bedrock throttling
-- No guaranteed processing or job tracking—retries are best-effort
-Next step for scale: Use a queue-driven ETL pipeline (SQS + workers, Step Functions, or containerized batch jobs) for reliable, high-volume ingestion
-
-## License
-
-MIT License – see LICENSE file for details
-
-## Acknowledgments
-
-Built with:
-- [AWS Bedrock](https://aws.amazon.com/bedrock/)
-- [RDS PostgreSQL + pgvector](https://github.com/pgvector/pgvector)
-- [React](https://react.dev/)
-- [Vite](https://vitejs.dev/)
-- [Material-UI](https://mui.com/)
-- [Terraform](https://www.terraform.io/)
-- [Infracodebase](https://infracodebase.com/)
+- [DESIGN_DETAILS.md](DESIGN_DETAILS.md) — hybrid search, RRF implementation, chunking rationale, Bedrock configuration, monitoring, and scalability limits
+- [DEPLOYMENT.md](DEPLOYMENT.md) — infrastructure setup and Terraform configuration

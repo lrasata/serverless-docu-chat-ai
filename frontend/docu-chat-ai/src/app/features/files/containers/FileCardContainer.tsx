@@ -1,5 +1,12 @@
-import { Box, Typography, Checkbox, Chip, Tooltip, CircularProgress } from "@mui/material";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import {
+  Box,
+  Typography,
+  Checkbox,
+  Chip,
+  Tooltip,
+  CircularProgress,
+} from "@mui/material";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import { useState } from "react";
@@ -39,7 +46,9 @@ const FileCardContainer = ({
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // files in processed status have to be indexed to be ready for querying
-  const idsToIndex = files.filter((f) => f.status === "processed").map((f) => f.file_key);
+  const idsToIndex = files
+    .filter((f) => f.status === "processed")
+    .map((f) => f.file_key);
 
   const toggle = (id: string, isPending: boolean) => {
     if (isPending) return;
@@ -78,7 +87,7 @@ const FileCardContainer = ({
           borderRadius: 2,
         }}
       >
-        <PictureAsPdfIcon sx={{ fontSize: 32, color: "text.disabled" }} />
+        <InsertDriveFileIcon sx={{ fontSize: 32, color: "text.disabled" }} />
         <Typography variant="body2" color="text.disabled">
           No files uploaded yet
         </Typography>
@@ -155,10 +164,12 @@ const FileCardContainer = ({
                 cursor: isPending ? "default" : "pointer",
                 opacity: isPending ? 0.6 : 1,
                 transition: "all 0.15s ease",
-                "&:hover": !isPending ? {
-                  borderColor: "primary.main",
-                  bgcolor: isSelected ? "primary.50" : "action.hover",
-                } : {},
+                "&:hover": !isPending
+                  ? {
+                      borderColor: "primary.main",
+                      bgcolor: isSelected ? "primary.50" : "action.hover",
+                    }
+                  : {},
                 ...(isSelected && {
                   bgcolor: (theme) =>
                     theme.palette.mode === "dark"
@@ -192,27 +203,10 @@ const FileCardContainer = ({
                 />
               )}
 
-              {/* PDF icon */}
-              <Box
-                sx={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 1.5,
-                  bgcolor: isSelected ? "primary.main" : "action.selected",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  mb: 1.5,
-                  transition: "background 0.15s",
-                }}
-              >
-                <PictureAsPdfIcon
-                  sx={{
-                    fontSize: 22,
-                    color: isSelected
-                      ? "primary.contrastText"
-                      : "text.secondary",
-                  }}
+              {/* File type badge */}
+              <Box sx={{ mb: 1.5 }}>
+                <InsertDriveFileIcon
+                  sx={{ fontSize: 28, color: isSelected ? "primary.main" : "text.disabled" }}
                 />
               </Box>
 
